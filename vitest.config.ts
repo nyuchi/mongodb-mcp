@@ -12,7 +12,8 @@ export default defineWorkersConfig({
           bindings: {
             WORKOS_CLIENT_ID: "client_test",
             WORKOS_CLIENT_SECRET: "sk_test_workos_client_secret",
-            COOKIE_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            COOKIE_ENCRYPTION_KEY:
+              "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             MONGODB_URI: "mongodb://invalid.test:27017",
             WORKOS_ALLOWED_ORG_IDS: "",
             WORKOS_REQUIRED_PERMISSION: "",

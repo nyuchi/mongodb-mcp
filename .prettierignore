@@ -1,0 +1,6 @@
+node_modules/
+.wrangler/
+dist/
+*.tsbuildinfo
+package-lock.json
+worker-configuration.d.ts

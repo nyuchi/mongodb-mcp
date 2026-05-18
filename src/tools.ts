@@ -63,20 +63,15 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
-    "dbStats",
-    "Return db.stats() for a database.",
-    { ...dbArg },
-    async ({ db }) => {
-      try {
-        const client = await getClient();
-        const stats = await client.db(db).stats();
-        return ok(stats);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
+  server.tool("dbStats", "Return db.stats() for a database.", { ...dbArg }, async ({ db }) => {
+    try {
+      const client = await getClient();
+      const stats = await client.db(db).stats();
+      return ok(stats);
+    } catch (e) {
+      return fail(e);
+    }
+  });
 
   server.tool(
     "collStats",
@@ -249,11 +244,9 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
         const result = await client
           .db(db)
           .collection(collection)
-          .updateOne(
-            parseExtendedJson<Document>(filter),
-            parseExtendedJson<Document>(update),
-            { upsert },
-          );
+          .updateOne(parseExtendedJson<Document>(filter), parseExtendedJson<Document>(update), {
+            upsert,
+          });
         return ok(result);
       } catch (e) {
         return fail(e);
@@ -276,11 +269,9 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
         const result = await client
           .db(db)
           .collection(collection)
-          .updateMany(
-            parseExtendedJson<Document>(filter),
-            parseExtendedJson<Document>(update),
-            { upsert },
-          );
+          .updateMany(parseExtendedJson<Document>(filter), parseExtendedJson<Document>(update), {
+            upsert,
+          });
         return ok(result);
       } catch (e) {
         return fail(e);
@@ -380,10 +371,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     async ({ db, collection, target, dropTarget }) => {
       try {
         const client = await getClient();
-        const result = await client
-          .db(db)
-          .collection(collection)
-          .rename(target, { dropTarget });
+        const result = await client.db(db).collection(collection).rename(target, { dropTarget });
         return ok({ ok: 1, db, from: collection, to: result.collectionName });
       } catch (e) {
         return fail(e);
@@ -461,18 +449,13 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
-    "ping",
-    "Ping the cluster.",
-    {},
-    async () => {
-      try {
-        const client = await getClient();
-        const result = await client.db("admin").command({ ping: 1 });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
+  server.tool("ping", "Ping the cluster.", {}, async () => {
+    try {
+      const client = await getClient();
+      const result = await client.db("admin").command({ ping: 1 });
+      return ok(result);
+    } catch (e) {
+      return fail(e);
+    }
+  });
 }

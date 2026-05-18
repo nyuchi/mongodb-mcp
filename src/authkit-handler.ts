@@ -186,10 +186,7 @@ app.get("/callback", async (c) => {
     .filter(Boolean);
 
   if (allowedOrgs.length > 0 && (!organizationId || !allowedOrgs.includes(organizationId))) {
-    return c.text(
-      "Your WorkOS organization is not authorized to use this MCP server.",
-      403,
-    );
+    return c.text("Your WorkOS organization is not authorized to use this MCP server.", 403);
   }
 
   const requiredPermission = (c.env.WORKOS_REQUIRED_PERMISSION || "").trim();

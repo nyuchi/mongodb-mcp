@@ -15,10 +15,10 @@ export class OAuthError extends Error {
   }
 
   toResponse(): Response {
-    return new Response(
-      JSON.stringify({ error: this.code, error_description: this.description }),
-      { status: this.statusCode, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: this.code, error_description: this.description }), {
+      status: this.statusCode,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
 
@@ -208,8 +208,7 @@ export async function addApprovedClient(
   const approvedClientsCookieName = "__Host-APPROVED_CLIENTS";
   const THIRTY_DAYS_IN_SECONDS = 2592000;
 
-  const existingApprovedClients =
-    (await getApprovedClientsFromCookie(request, cookieSecret)) || [];
+  const existingApprovedClients = (await getApprovedClientsFromCookie(request, cookieSecret)) || [];
   const updatedApprovedClients = Array.from(new Set([...existingApprovedClients, clientId]));
 
   const payload = JSON.stringify(updatedApprovedClients);
@@ -241,9 +240,7 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
   const tosUri = client?.tosUri ? sanitizeText(sanitizeUrl(client.tosUri)) : "";
 
   const contacts =
-    client?.contacts && client.contacts.length > 0
-      ? sanitizeText(client.contacts.join(", "))
-      : "";
+    client?.contacts && client.contacts.length > 0 ? sanitizeText(client.contacts.join(", ")) : "";
 
   const redirectUris =
     client?.redirectUris && client.redirectUris.length > 0
