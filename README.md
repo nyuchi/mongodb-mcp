@@ -27,11 +27,18 @@ MCP Client ──> Cloudflare Worker /mcp ──> WorkOS AuthKit (OAuth)
 ## Available tools
 
 Discovery: `listDatabases`, `listCollections`, `dbStats`, `collStats`, `ping`.
-Reads: `find`, `findOne`, `count`, `aggregate`.
+Reads: `find`, `findOne`, `count`, `aggregate`, `distinct`,
+`estimatedDocumentCount`, `explain`.
 Writes: `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`,
-`deleteMany` (refuses empty filter without `confirm: true`).
+`deleteMany` (refuses empty filter without `confirm: true`), `replaceOne`,
+`findOneAndUpdate`, `findOneAndReplace`, `findOneAndDelete`, `bulkWrite`.
 Admin: `createCollection`, `dropCollection` (requires `confirm: true`),
-`renameCollection`, `createIndex`, `listIndexes`, `dropIndex`, `runCommand`.
+`renameCollection`, `createView`, `createIndex`, `listIndexes`, `dropIndex`,
+`runCommand`.
+Atlas Search: `listSearchIndexes`, `createSearchIndex`, `updateSearchIndex`,
+`dropSearchIndex`.
+User management: `createUser`, `updateUser`, `dropUser` (requires
+`confirm: true`), `grantRolesToUser`, `revokeRolesFromUser`.
 
 All filter/document/pipeline arguments accept **Extended JSON** so you can pass
 `{"_id": {"$oid": "..."}}` or `{"createdAt": {"$gte": {"$date": "2025-01-01"}}}`
