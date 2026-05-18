@@ -20,10 +20,22 @@ const app = new Hono<{
   Variables: { workOS: WorkOS };
 }>();
 
-app.use(async (c, next) => {
-  c.set("workOS", new WorkOS(c.env.WORKOS_CLIENT_SECRET));
-  await next();
-});
+function requireWorkOS(c: {
+  env: Env;
+  set: (k: "workOS", v: WorkOS) => void;
+  get: (k: "workOS") => WorkOS | undefined;
+}): WorkOS {
+  let workOS = c.get("workOS");
+  if (workOS) return workOS;
+  if (!c.env.WORKOS_CLIENT_SECRET) {
+    throw new Error(
+      "WORKOS_CLIENT_SECRET is not configured. Add it as a Worker secret before using auth routes.",
+    );
+  }
+  workOS = new WorkOS(c.env.WORKOS_CLIENT_SECRET);
+  c.set("workOS", workOS);
+  return workOS;
+}
 
 app.get("/", (c) => {
   return c.html(
@@ -107,11 +119,16 @@ app.post("/authorize", async (c) => {
 });
 
 function redirectToAuthKit(
-  c: { env: Env; req: { url: string }; get: (k: "workOS") => WorkOS },
+  c: {
+    env: Env;
+    req: { url: string };
+    set: (k: "workOS", v: WorkOS) => void;
+    get: (k: "workOS") => WorkOS | undefined;
+  },
   stateToken: string,
   headers: Record<string, string> = {},
 ) {
-  const workOS = c.get("workOS");
+  const workOS = requireWorkOS(c);
   return new Response(null, {
     headers: {
       ...headers,
@@ -148,7 +165,7 @@ app.get("/callback", async (c) => {
     return c.text("Missing code", 400);
   }
 
-  const workOS = c.get("workOS");
+  const workOS = requireWorkOS(c);
   let response: AuthenticationResponse;
   try {
     response = await workOS.userManagement.authenticateWithCode({
