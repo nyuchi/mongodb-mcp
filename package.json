@@ -1,6 +1,6 @@
 {
   "name": "mongodb-mcp",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "private": true,
   "description": "Authenticated remote MCP server for managing MongoDB, running on Cloudflare Workers with WorkOS AuthKit.",
   "scripts": {
