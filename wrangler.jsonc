@@ -36,9 +36,9 @@
     "enabled": true
   },
   "vars": {
-    "WORKOS_CLIENT_ID": "",
+    "WORKOS_CLIENT_ID": "client_01KQBBSM2FRWYND51VY92NSCG3",
     "WORKOS_ALLOWED_ORG_IDS": "",
-    "WORKOS_REQUIRED_PERMISSION": ""
+    "WORKOS_REQUIRED_PERMISSION": "mongodb:access"
   },
   "dev": {
     "port": 8788
