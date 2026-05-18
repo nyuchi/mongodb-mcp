@@ -570,13 +570,17 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
         const result = await client
           .db(db)
           .collection(collection)
-          .findOneAndUpdate(parseExtendedJson<Document>(filter), parseExtendedJson<Document>(update), {
-            projection: projection ? parseExtendedJson<Document>(projection) : undefined,
-            sort: sort ? parseExtendedJson<Document>(sort) : undefined,
-            upsert,
-            returnDocument,
-            includeResultMetadata: true,
-          });
+          .findOneAndUpdate(
+            parseExtendedJson<Document>(filter),
+            parseExtendedJson<Document>(update),
+            {
+              projection: projection ? parseExtendedJson<Document>(projection) : undefined,
+              sort: sort ? parseExtendedJson<Document>(sort) : undefined,
+              upsert,
+              returnDocument,
+              includeResultMetadata: true,
+            },
+          );
         return ok(result);
       } catch (e) {
         return fail(e);
