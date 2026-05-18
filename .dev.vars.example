@@ -1,0 +1,9 @@
+# Copy to `.dev.vars` for `wrangler dev`. Never commit the real file.
+WORKOS_CLIENT_ID="client_..."
+WORKOS_CLIENT_SECRET="sk_..."
+COOKIE_ENCRYPTION_KEY="replace-with-`openssl rand -hex 32`"
+MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"
+
+# Optional: restrict to specific WorkOS organizations and/or require a permission.
+# WORKOS_ALLOWED_ORG_IDS="org_abc,org_def"
+# WORKOS_REQUIRED_PERMISSION="mongodb:access"

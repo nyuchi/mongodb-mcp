@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mongodb-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MongoMcp"]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "MongoMcp",
+        "name": "MCP_OBJECT"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "<replace-with-kv-id>"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "WORKOS_CLIENT_ID": "",
+    "WORKOS_ALLOWED_ORG_IDS": "",
+    "WORKOS_REQUIRED_PERMISSION": ""
+  },
+  "dev": {
+    "port": 8788
+  }
+}
