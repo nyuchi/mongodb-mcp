@@ -1,0 +1,8 @@
+{
+  // Line-length is enforced by prettier, not markdownlint.
+  "MD013": false,
+  // Inline HTML is sometimes needed for raw badges / breaks.
+  "MD033": false,
+  // Allow duplicate headings across sections.
+  "MD024": { "siblings_only": true }
+}

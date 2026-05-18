@@ -1,0 +1,7 @@
+* @nyuchi/platform
+
+/.github/        @nyuchi/platform
+/wrangler.jsonc  @nyuchi/platform
+/package.json    @nyuchi/platform
+/src/auth.ts         @nyuchi/platform
+/src/oauth-utils.ts  @nyuchi/platform

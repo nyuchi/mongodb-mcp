@@ -1,0 +1,63 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Africa/Harare
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "automated"]
+    reviewers: ["nyuchi/platform"]
+    groups:
+      cloudflare:
+        patterns:
+          - "@cloudflare/*"
+          - "wrangler"
+          - "agents"
+      workos:
+        patterns:
+          - "@workos-inc/*"
+      mcp:
+        patterns:
+          - "@modelcontextprotocol/*"
+      mongodb:
+        patterns:
+          - "mongodb"
+          - "mongodb-*"
+      types:
+        patterns:
+          - "@types/*"
+        update-types:
+          - minor
+          - patch
+      runtime-minor:
+        patterns:
+          - "hono"
+          - "jose"
+          - "zod"
+        update-types:
+          - minor
+          - patch
+      dev-minor:
+        patterns:
+          - "vitest"
+          - "typescript"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Africa/Harare
+    labels: ["github-actions", "dependencies", "automated"]
+    reviewers: ["nyuchi/platform"]
+    groups:
+      actions:
+        patterns:
+          - "*"

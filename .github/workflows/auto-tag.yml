@@ -1,0 +1,43 @@
+name: auto-tag
+
+# Bumps a semver tag on every push to main. Conventional-commit prefixes drive
+# the bump:
+#   feat: ............ minor
+#   fix: / perf: ..... patch
+#   chore: / docs: ... patch (default_bump)
+#   BREAKING CHANGE .. major
+#
+# A PAT is required (`RELEASE_BUMP_TOKEN`, fine-grained, scope = contents:write
+# + actions:read on this repo). GITHUB_TOKEN-pushed tags do not trigger
+# downstream workflows, so without the PAT the release.yml caller would never
+# fire and no SBOM/release would be cut.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-tag-main
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_BUMP_TOKEN }}
+
+      - name: Bump semver tag
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.RELEASE_BUMP_TOKEN }}
+          default_bump: patch
+          tag_prefix: v
+          release_branches: main
+          create_annotated_tag: true
