@@ -1,7 +1,7 @@
 # mongodb-mcp
 
 Authenticated remote **Model Context Protocol** server for managing MongoDB,
-running on Cloudflare Workers and served at **https://mongodb.nyuchi.dev/mcp**.
+running on Cloudflare Workers and served at **<https://mongodb.nyuchi.dev/mcp>**.
 Identity is provided by **WorkOS AuthKit** through Cloudflare's
 `workers-oauth-provider`, so the MCP endpoint is never public — every MCP
 client (Claude Desktop, Cursor, etc.) goes through the WorkOS sign-in flow
@@ -9,7 +9,7 @@ before it can call any tool.
 
 ## Architecture
 
-```
+```text
 MCP Client ──> Cloudflare Worker /mcp ──> WorkOS AuthKit (OAuth)
                        │
                        └── MongoMcp (Durable Object) ──> MongoDB cluster
@@ -98,7 +98,7 @@ npm run deploy
 For clients that don't support remote MCP over HTTP yet, use the `mcp-remote`
 proxy:
 
-```jsonc
+```json
 {
   "mcpServers": {
     "mongodb": {
