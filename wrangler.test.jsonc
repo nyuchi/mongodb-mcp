@@ -1,9 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "mongodb-mcp",
+  "name": "mongodb-mcp-test",
   "main": "src/index.ts",
   "compatibility_date": "2025-04-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "migrations": [
     {
       "tag": "v1",
@@ -21,24 +21,7 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "<replace-with-kv-id>"
+      "id": "test-oauth-kv"
     }
-  ],
-  "routes": [
-    {
-      "pattern": "mongodb.nyuchi.dev",
-      "custom_domain": true
-    }
-  ],
-  "observability": {
-    "enabled": true
-  },
-  "vars": {
-    "WORKOS_CLIENT_ID": "",
-    "WORKOS_ALLOWED_ORG_IDS": "",
-    "WORKOS_REQUIRED_PERMISSION": ""
-  },
-  "dev": {
-    "port": 8788
-  }
+  ]
 }

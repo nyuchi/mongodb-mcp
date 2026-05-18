@@ -1,10 +1,11 @@
 # mongodb-mcp
 
 Authenticated remote **Model Context Protocol** server for managing MongoDB,
-running on Cloudflare Workers. Identity is provided by **WorkOS AuthKit**
-through Cloudflare's `workers-oauth-provider`, so the MCP endpoint is never
-public — every MCP client (Claude Desktop, Cursor, etc.) goes through the
-WorkOS sign-in flow before it can call any tool.
+running on Cloudflare Workers and served at **https://mongodb.nyuchi.dev/mcp**.
+Identity is provided by **WorkOS AuthKit** through Cloudflare's
+`workers-oauth-provider`, so the MCP endpoint is never public — every MCP
+client (Claude Desktop, Cursor, etc.) goes through the WorkOS sign-in flow
+before it can call any tool.
 
 ## Architecture
 
@@ -102,7 +103,7 @@ proxy:
   "mcpServers": {
     "mongodb": {
       "command": "npx",
-      "args": ["mcp-remote", "https://<your-worker>.workers.dev/mcp"]
+      "args": ["mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
     }
   }
 }
@@ -110,6 +111,27 @@ proxy:
 
 The first connection opens a browser tab, you sign in via WorkOS, and the
 access token is cached locally by `mcp-remote`.
+
+## Tests
+
+```sh
+npm test          # vitest, runs inside workerd via @cloudflare/vitest-pool-workers
+npm run type-check
+```
+
+Coverage:
+
+- `test/oauth-utils.test.ts` — CSRF protection, state-binding cookies,
+  approved-clients HMAC, URL/HTML sanitization, `OAuthError` serialisation.
+- `test/authkit-handler.test.ts` — the Hono auth app: landing page,
+  `/authorize` 400 without `client_id`, CSRF rejection, `/callback` without
+  `state`, approval dialog rendering with mocked `OAUTH_PROVIDER`.
+- `test/mongo.test.ts` — Extended JSON parse/stringify helpers (including
+  truncation of oversized payloads).
+
+End-to-end smoke testing against a real WorkOS tenant + MongoDB cluster is not
+in the test suite; spin up `wrangler dev` with `.dev.vars` to exercise the
+full path.
 
 ## MongoDB driver on Workers
 
