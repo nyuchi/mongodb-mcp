@@ -2,6 +2,7 @@ import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provid
 import { type AccessToken, type AuthenticationResponse, WorkOS } from "@workos-inc/node";
 import { Hono } from "hono";
 import * as jose from "jose";
+import { landingHtml } from "./landing";
 import type { Props } from "./props";
 import {
   addApprovedClient,
@@ -38,13 +39,9 @@ function requireWorkOS(c: {
 }
 
 app.get("/", (c) => {
-  return c.html(
-    `<!doctype html><html><head><meta charset="utf-8"><title>MongoDB MCP</title></head>
-     <body style="font-family: -apple-system, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1rem;">
-       <h1>MongoDB MCP</h1>
-       <p>Authenticated remote MCP server for managing MongoDB. Point your MCP client at <code>/mcp</code> and complete the WorkOS sign-in.</p>
-     </body></html>`,
-  );
+  return c.html(landingHtml(), 200, {
+    "Cache-Control": "public, max-age=300",
+  });
 });
 
 app.get("/authorize", async (c) => {
