@@ -153,3 +153,26 @@ which is the only place Workers permit TCP connections.
   with `COOKIE_ENCRYPTION_KEY`.
 - WorkOS organization and permission gates are evaluated on every fresh login;
   refresh-token rotation is delegated to WorkOS.
+
+## Releases
+
+Tags are the source of truth. Every push to `main` runs
+`.github/workflows/auto-tag.yml`, which inspects conventional-commit prefixes
+since the last tag and pushes a new annotated tag:
+
+| Commit prefix          | Bump  |
+| ---------------------- | ----- |
+| `feat:`                | minor |
+| `fix:` / `perf:`       | patch |
+| `chore:` / `docs:` / … | patch |
+| `BREAKING CHANGE:`     | major |
+
+The tag push fires `release.yml`, which delegates to the org-wide
+`nyuchi/.github/.github/workflows/reusable-release.yml` — it validates the
+semver shape, generates a CycloneDX SBOM, and publishes the GitHub release
+with auto-generated notes.
+
+A `RELEASE_BUMP_TOKEN` repo secret (fine-grained PAT with
+`contents: write` and `actions: read`) is required so the auto-tag workflow
+can push tags as a user identity rather than `GITHUB_TOKEN` —
+without that, downstream tag-triggered workflows would not fire.
