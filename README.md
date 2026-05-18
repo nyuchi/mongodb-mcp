@@ -83,6 +83,30 @@ Optionally restrict access:
 - `WORKOS_ALLOWED_ORG_IDS` (comma-separated list of organization ids)
 - `WORKOS_REQUIRED_PERMISSION` (e.g. `mongodb:access`, granted via WorkOS roles)
 
+### 4a. MongoDB user role requirements
+
+The user encoded in `MONGODB_URI` must have the privileges for whichever tools
+you intend to call — the MCP can only do what that user is authorised to do.
+Grant the smallest role that covers your usage:
+
+| Tools you want to use                                                                                                                                                   | Required role (on the target db)                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `find`, `findOne`, `count`, `aggregate`, `distinct`, `listIndexes`, `collStats`                                                                                         | `read`                                                        |
+| Above + `insert*`, `update*`, `delete*`, `replaceOne`, `findOneAnd*`, `bulkWrite`, `createIndex`, `dropIndex`, `createCollection`, `dropCollection`, `renameCollection` | `readWrite`                                                   |
+| `createView`, `explain`, `dbStats`, profiler-style commands via `runCommand`                                                                                            | `dbAdmin` (combine with `readWrite`, or use `dbOwner`)        |
+| `createUser`, `updateUser`, `dropUser`, `grantRolesToUser`, `revokeRolesFromUser`                                                                                       | `userAdmin`                                                   |
+| Atlas Search tools (`listSearchIndexes`, `createSearchIndex`, …)                                                                                                        | Atlas-cluster role with Search privileges (e.g. `atlasAdmin`) |
+| Anything on every database in the cluster                                                                                                                               | `readWriteAnyDatabase` / `dbAdminAnyDatabase` / `root`        |
+
+Tools that hit a permission boundary return the MongoDB error plus a hint
+pointing back to this section, so you can iterate without trial-and-error.
+Grant or change roles in the Atlas UI (Database Access → edit user) or via
+`mongosh`:
+
+```js
+db.getSiblingDB("admin").grantRolesToUser("<mcp-user>", [{ role: "readWrite", db: "<your-db>" }]);
+```
+
 ### 5. Run locally
 
 Copy `.dev.vars.example` to `.dev.vars`, fill it in, then:

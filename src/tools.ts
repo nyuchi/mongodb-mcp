@@ -12,9 +12,42 @@ function ok(value: unknown): ToolResult {
   return { content: [{ type: "text", text: stringifyEJson(value) }] };
 }
 
+// MongoDB server error codes we want to surface with extra guidance.
+// https://github.com/mongodb/mongo/blob/master/src/mongo/base/error_codes.yml
+const AUTH_ERROR_CODES = new Set([
+  13, // Unauthorized
+  18, // AuthenticationFailed
+  31, // RoleNotFound
+  33, // UserNotFound
+  390, // CommandNotSupportedOnView
+]);
+
+function permissionHint(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const e = err as { code?: unknown; codeName?: unknown; message?: unknown };
+  const code = typeof e.code === "number" ? e.code : undefined;
+  const codeName = typeof e.codeName === "string" ? e.codeName : "";
+  const message = typeof e.message === "string" ? e.message : "";
+
+  const looksAuth =
+    (code !== undefined && AUTH_ERROR_CODES.has(code)) ||
+    codeName === "Unauthorized" ||
+    codeName === "AuthenticationFailed" ||
+    /not authorized on|requires authentication|command .* requires/i.test(message);
+
+  if (!looksAuth) return null;
+
+  if (codeName === "AuthenticationFailed" || code === 18) {
+    return "AuthenticationFailed: the MONGODB_URI credentials are wrong or the user does not exist on the auth database. Verify the username/password and the authSource in the connection string.";
+  }
+  return "Unauthorized: the MongoDB user in MONGODB_URI lacks privileges for this operation. Grant a role that covers it on the target database, e.g. `readWrite` (CRUD + createIndex/dropIndex), `dbAdmin` (DDL, profiler, views), or `dbOwner` (both). For cluster-wide access use `readWriteAnyDatabase` / `dbAdminAnyDatabase`. User management tools additionally require `userAdmin` on the target db. See README → 'MongoDB user role requirements'.";
+}
+
 function fail(err: unknown): ToolResult {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-  return { content: [{ type: "text", text: message }], isError: true };
+  const hint = permissionHint(err);
+  const text = hint ? `${message}\n\n${hint}` : message;
+  return { content: [{ type: "text", text }], isError: true };
 }
 
 const dbArg = { db: z.string().describe("Database name").min(1) };
