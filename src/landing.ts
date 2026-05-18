@@ -20,6 +20,8 @@ const STYLES = `
     --color-fg: #1C1B1A;
     --color-fg-muted: #5F5C57;
     --color-border: #E7E5E0;
+    --dot-color: rgba(0, 71, 171, 0.09);
+    --dot-grid: 24px;
     --radius-sm: 7px;
     --radius-md: 12px;
     --radius-lg: 14px;
@@ -46,13 +48,16 @@ const STYLES = `
       --color-fg: #F0EFEC;
       --color-fg-muted: #A8A39A;
       --color-border: #2A2927;
+      --dot-color: rgba(0, 176, 255, 0.13);
     }
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
-    background: var(--color-canvas);
+    background-color: var(--color-canvas);
+    background-image: radial-gradient(circle at 1px 1px, var(--dot-color) 1px, transparent 0);
+    background-size: var(--dot-grid) var(--dot-grid);
     color: var(--color-fg);
     font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 1rem;
