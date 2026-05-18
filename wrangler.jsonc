@@ -36,8 +36,7 @@
     "enabled": true
   },
   "vars": {
-    "WORKOS_CLIENT_ID": "client_01KQBBSM2FRWYND51VY92NSCG3",
-    "WORKOS_ALLOWED_ORG_IDS": "",
+    "WORKOS_CLIENT_ID": "client_01KQBBSMQTSMTBN7HEC9KQBJC0",
     "WORKOS_REQUIRED_PERMISSION": "mongodb:access"
   },
   "dev": {
