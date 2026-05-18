@@ -25,13 +25,12 @@
       "id": "5444b8773bc14eb78738c74f1d3c28ea"
     }
   ],
-  // Uncomment once nyuchi.dev is added as a Cloudflare zone on this account.
-  // "routes": [
-  //   {
-  //     "pattern": "mongodb.nyuchi.dev",
-  //     "custom_domain": true
-  //   }
-  // ],
+  "routes": [
+    {
+      "pattern": "mongodb.nyuchi.dev",
+      "custom_domain": true
+    }
+  ],
   "observability": {
     "enabled": true
   },
