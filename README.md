@@ -316,3 +316,9 @@ A `RELEASE_BUMP_TOKEN` repo secret (fine-grained PAT with
 `contents: write` and `actions: read`) is required so the auto-tag workflow
 can push tags as a user identity rather than `GITHUB_TOKEN` —
 without that, downstream tag-triggered workflows would not fire.
+
+## License
+
+[MIT](./LICENSE) © Nyuchi. The vendored `src/workers-oauth-utils.ts` retains
+its upstream MIT attribution from Cloudflare's `workers-oauth-provider`
+reference template.
