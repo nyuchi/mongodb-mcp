@@ -16,24 +16,11 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  codeql:
-    name: CodeQL
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-          build-mode: none
-          queries: security-and-quality
-      - uses: github/codeql-action/analyze@v3
-        with:
-          category: /language:javascript-typescript
-
+  # CodeQL is handled by GitHub's Default Setup (Settings → Code security
+  # & analysis → CodeQL analysis). Running an advanced workflow here would
+  # conflict with that — "CodeQL analyses from advanced configurations
+  # cannot be processed when the default setup is enabled." Switch the
+  # setting to "Advanced" if you want to manage queries/schedule in code.
   npm-audit:
     name: npm audit
     runs-on: ubuntu-latest

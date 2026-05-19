@@ -291,8 +291,9 @@ which is the only place Workers permit TCP connections.
   with `COOKIE_ENCRYPTION_KEY`.
 - WorkOS organization and permission gates are evaluated on every fresh login;
   refresh-token rotation is delegated to WorkOS.
-- CI runs CodeQL static analysis, `npm audit`, `actions/dependency-review-action`,
-  and `gitleaks` on every PR — see `.github/workflows/security.yml`.
+- CI runs `npm audit`, `actions/dependency-review-action`, and `gitleaks` on
+  every PR — see `.github/workflows/security.yml`. CodeQL static analysis is
+  handled by GitHub's Default Setup (Settings → Code security & analysis).
 
 ## Releases
 
