@@ -136,6 +136,45 @@ const STYLES = `
   }
   ul.tools li strong { font-weight: 600; }
   ul.tools li .desc { color: var(--color-fg-muted); font-size: 0.9375rem; }
+  .tabs {
+    margin: var(--space-base) 0 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .tabs details { border-top: 1px solid var(--color-border); }
+  .tabs details:first-child { border-top: 0; }
+  .tabs summary {
+    list-style: none;
+    cursor: pointer;
+    padding: var(--space-md) var(--space-lg);
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .tabs summary::-webkit-details-marker { display: none; }
+  .tabs summary::after { content: "+"; font-weight: 400; color: var(--color-fg-muted); }
+  .tabs details[open] summary::after { content: "−"; }
+  .tabs details > div { padding: 0 var(--space-lg) var(--space-lg); }
+  .tabs details > div p { margin: 0 0 var(--space-sm); color: var(--color-fg-muted); font-size: 0.9375rem; }
+  .tabs pre { margin-top: var(--space-sm); }
+  table.roles {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-base) 0 0;
+    font-size: 0.9375rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  table.roles th, table.roles td {
+    padding: var(--space-sm) var(--space-base);
+    border-bottom: 1px solid var(--color-border);
+    text-align: left; vertical-align: top;
+  }
+  table.roles tr:last-child td { border-bottom: 0; }
+  table.roles th { background: var(--color-surface); font-weight: 600; }
+  table.roles td code { font-size: 0.875rem; }
   footer.site {
     margin-top: var(--space-4xl);
     border-top: 1px solid var(--color-border);
@@ -187,19 +226,89 @@ export function landingHtml(): string {
       </div>
 
       <h2 id="connect">Connect</h2>
-      <p>Add this to your MCP client config (here, Claude Desktop):</p>
-      <pre><code>{
-  "mcpServers": {
-    "mongodb": {
-      "command": "npx",
-      "args": ["mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
-    }
-  }
-}</code></pre>
-      <p style="margin-top: var(--space-base); color: var(--color-fg-muted); font-size: 0.9375rem;">
+      <p style="color: var(--color-fg-muted); font-size: 0.9375rem;">
         First call opens a browser to WorkOS AuthKit; once you approve, the
         client caches the token and every tool call runs under your identity.
       </p>
+      <div class="tabs">
+        <details open>
+          <summary>Claude Desktop / Claude Code (CLI)</summary>
+          <div>
+            <p>CLI shortcut: <code>claude mcp add mongodb https://mongodb.nyuchi.dev/mcp --transport http</code>. Or paste this into <code>~/.claude.json</code> / <code>claude_desktop_config.json</code>:</p>
+            <pre><code>{
+  "mcpServers": {
+    "mongodb": {
+      "type": "http",
+      "url": "https://mongodb.nyuchi.dev/mcp"
+    }
+  }
+}</code></pre>
+          </div>
+        </details>
+        <details>
+          <summary>Cursor</summary>
+          <div>
+            <p>Drop into <code>~/.cursor/mcp.json</code> (user) or <code>.cursor/mcp.json</code> (project):</p>
+            <pre><code>{
+  "mcpServers": {
+    "mongodb": {
+      "url": "https://mongodb.nyuchi.dev/mcp"
+    }
+  }
+}</code></pre>
+          </div>
+        </details>
+        <details>
+          <summary>VS Code (GitHub Copilot Chat)</summary>
+          <div>
+            <p>Native MCP since VS Code 1.99. Add to <code>.vscode/mcp.json</code>:</p>
+            <pre><code>{
+  "servers": {
+    "mongodb": {
+      "type": "http",
+      "url": "https://mongodb.nyuchi.dev/mcp"
+    }
+  }
+}</code></pre>
+          </div>
+        </details>
+        <details>
+          <summary>Codex CLI (OpenAI)</summary>
+          <div>
+            <p>Add to <code>~/.codex/config.toml</code>:</p>
+            <pre><code>[mcp_servers.mongodb]
+command = "npx"
+args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
+          </div>
+        </details>
+        <details>
+          <summary>Gemini CLI / Code Assist</summary>
+          <div>
+            <p>Add to <code>~/.gemini/settings.json</code>:</p>
+            <pre><code>{
+  "mcpServers": {
+    "mongodb": {
+      "httpUrl": "https://mongodb.nyuchi.dev/mcp"
+    }
+  }
+}</code></pre>
+          </div>
+        </details>
+        <details>
+          <summary>Windsurf / Continue / Zed (or any stdio-only client)</summary>
+          <div>
+            <p>Wrap with the <code>mcp-remote</code> proxy:</p>
+            <pre><code>{
+  "mcpServers": {
+    "mongodb": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
+    }
+  }
+}</code></pre>
+          </div>
+        </details>
+      </div>
 
       <h2>What's inside</h2>
       <ul class="tools">
@@ -209,17 +318,66 @@ export function landingHtml(): string {
         </li>
         <li>
           <strong>Read</strong>
-          <div class="desc"><code>find</code>, <code>findOne</code>, <code>count</code>, <code>aggregate</code> — Extended JSON filters and pipelines</div>
+          <div class="desc"><code>find</code>, <code>findOne</code>, <code>count</code>, <code>aggregate</code>, <code>distinct</code>, <code>estimatedDocumentCount</code>, <code>explain</code> — Extended JSON filters and pipelines</div>
         </li>
         <li>
           <strong>Write</strong>
-          <div class="desc"><code>insertOne</code>/<code>Many</code>, <code>updateOne</code>/<code>Many</code>, <code>deleteOne</code>/<code>Many</code> — refuses empty filters without an explicit confirm</div>
+          <div class="desc"><code>insertOne</code>/<code>Many</code>, <code>updateOne</code>/<code>Many</code>, <code>deleteOne</code>/<code>Many</code>, <code>replaceOne</code>, <code>findOneAndUpdate</code>/<code>Replace</code>/<code>Delete</code>, <code>bulkWrite</code> — refuses empty filters without an explicit confirm</div>
         </li>
         <li>
           <strong>Admin</strong>
-          <div class="desc"><code>createCollection</code>, <code>dropCollection</code>, <code>renameCollection</code>, <code>createIndex</code>, <code>dropIndex</code>, <code>runCommand</code></div>
+          <div class="desc"><code>createCollection</code>, <code>dropCollection</code>, <code>renameCollection</code>, <code>createView</code>, <code>createIndex</code>, <code>listIndexes</code>, <code>dropIndex</code>, <code>runCommand</code></div>
+        </li>
+        <li>
+          <strong>Atlas Search</strong>
+          <div class="desc"><code>listSearchIndexes</code>, <code>createSearchIndex</code>, <code>updateSearchIndex</code>, <code>dropSearchIndex</code></div>
+        </li>
+        <li>
+          <strong>User management</strong>
+          <div class="desc"><code>createUser</code>, <code>updateUser</code>, <code>dropUser</code>, <code>grantRolesToUser</code>, <code>revokeRolesFromUser</code></div>
         </li>
       </ul>
+
+      <h2 id="roles">MongoDB user role requirements</h2>
+      <p>
+        The MCP can only do what the user in your <code>MONGODB_URI</code> is
+        authorised to do. Grant the smallest role that covers your usage —
+        permission-denied responses include a hint pointing to this table:
+      </p>
+      <table class="roles">
+        <thead>
+          <tr><th>Tools you want to use</th><th>Role on the target db</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Reads: <code>find</code>, <code>findOne</code>, <code>count</code>, <code>aggregate</code>, <code>distinct</code>, <code>listIndexes</code>, <code>collStats</code></td>
+            <td><code>read</code></td>
+          </tr>
+          <tr>
+            <td>Above + writes, <code>createIndex</code>/<code>dropIndex</code>, <code>createCollection</code>/<code>dropCollection</code>/<code>renameCollection</code>, <code>bulkWrite</code></td>
+            <td><code>readWrite</code></td>
+          </tr>
+          <tr>
+            <td><code>createView</code>, <code>explain</code>, <code>dbStats</code>, profiler-style commands</td>
+            <td><code>dbAdmin</code> (or <code>dbOwner</code> for both)</td>
+          </tr>
+          <tr>
+            <td>User-management tools (<code>createUser</code>, …, <code>revokeRolesFromUser</code>)</td>
+            <td><code>userAdmin</code></td>
+          </tr>
+          <tr>
+            <td>Atlas Search tools</td>
+            <td>Atlas role with Search privileges (e.g. <code>atlasAdmin</code>)</td>
+          </tr>
+          <tr>
+            <td>Anything on every database in the cluster</td>
+            <td><code>readWriteAnyDatabase</code> / <code>dbAdminAnyDatabase</code> / <code>root</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top: var(--space-base); font-size: 0.9375rem; color: var(--color-fg-muted);">
+        Full setup notes are in the <a href="https://github.com/nyuchi/mongodb-mcp#mongodb-user-role-requirements">README</a>.
+      </p>
 
       <h2>How auth works</h2>
       <p>

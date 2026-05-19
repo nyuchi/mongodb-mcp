@@ -44,6 +44,22 @@ app.get("/", (c) => {
   });
 });
 
+// Stable icon URLs — the MCP serverInfo and the landing page both point here,
+// so MCP clients listing this server (and the browser tab) can render the
+// Nyuchi mark without depending on a different origin's availability.
+const ICON_REDIRECT = "https://www.nyuchi.com/icon-light.png";
+function redirectToIcon() {
+  return new Response(null, {
+    status: 301,
+    headers: {
+      Location: ICON_REDIRECT,
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+}
+app.get("/favicon.ico", () => redirectToIcon());
+app.get("/icon.png", () => redirectToIcon());
+
 app.get("/authorize", async (c) => {
   const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
   const { clientId } = oauthReqInfo;
