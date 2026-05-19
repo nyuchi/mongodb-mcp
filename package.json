@@ -2,6 +2,7 @@
   "name": "mongodb-mcp",
   "version": "0.1.21",
   "private": true,
+  "license": "MIT",
   "description": "Authenticated remote MCP server for managing MongoDB, running on Cloudflare Workers with WorkOS AuthKit.",
   "scripts": {
     "deploy": "wrangler deploy",
@@ -25,7 +26,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.16.6",
     "@cloudflare/workers-types": "^4.20260518.1",
-    "@types/node": "^24.12.4",
+    "@types/node": "^25.9.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6",
     "wrangler": "^4.92.0"

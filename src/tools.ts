@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { MongoClient, Document } from "mongodb";
+import type { AnyBulkWriteOperation, Document, MongoClient } from "mongodb";
 import { z } from "zod";
-import { parseExtendedJson, stringifyEJson } from "./mongo";
+import { parseExtendedJson, stringifyEJson } from "./ejson";
 
 type ToolResult = {
   content: { type: "text"; text: string }[];
@@ -12,9 +12,42 @@ function ok(value: unknown): ToolResult {
   return { content: [{ type: "text", text: stringifyEJson(value) }] };
 }
 
-function fail(err: unknown): ToolResult {
+// MongoDB server error codes we want to surface with extra guidance.
+// https://github.com/mongodb/mongo/blob/master/src/mongo/base/error_codes.yml
+const AUTH_ERROR_CODES = new Set([
+  13, // Unauthorized
+  18, // AuthenticationFailed
+  31, // RoleNotFound
+  33, // UserNotFound
+  390, // CommandNotSupportedOnView
+]);
+
+export function permissionHint(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const e = err as { code?: unknown; codeName?: unknown; message?: unknown };
+  const code = typeof e.code === "number" ? e.code : undefined;
+  const codeName = typeof e.codeName === "string" ? e.codeName : "";
+  const message = typeof e.message === "string" ? e.message : "";
+
+  const looksAuth =
+    (code !== undefined && AUTH_ERROR_CODES.has(code)) ||
+    codeName === "Unauthorized" ||
+    codeName === "AuthenticationFailed" ||
+    /not authorized on|requires authentication|command .* requires/i.test(message);
+
+  if (!looksAuth) return null;
+
+  if (codeName === "AuthenticationFailed" || code === 18) {
+    return "AuthenticationFailed: the MONGODB_URI credentials are wrong or the user does not exist on the auth database. Verify the username/password and the authSource in the connection string.";
+  }
+  return "Unauthorized: the MongoDB user in MONGODB_URI lacks privileges for this operation. Grant a role that covers it on the target database, e.g. `readWrite` (CRUD + createIndex/dropIndex), `dbAdmin` (DDL, profiler, views), or `dbOwner` (both). For cluster-wide access use `readWriteAnyDatabase` / `dbAdminAnyDatabase`. User management tools additionally require `userAdmin` on the target db. See README → 'MongoDB user role requirements'.";
+}
+
+export function fail(err: unknown): ToolResult {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-  return { content: [{ type: "text", text: message }], isError: true };
+  const hint = permissionHint(err);
+  const text = hint ? `${message}\n\n${hint}` : message;
+  return { content: [{ type: "text", text }], isError: true };
 }
 
 const dbArg = { db: z.string().describe("Database name").min(1) };
@@ -458,4 +491,439 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       return fail(e);
     }
   });
+
+  // ---------- read helpers ----------
+
+  server.tool(
+    "distinct",
+    "Return the distinct values for a field across a collection.",
+    {
+      ...collArg,
+      field: z.string().min(1).describe("Field name to compute distinct values for."),
+      filter: jsonDoc.optional(),
+    },
+    async ({ db, collection, field, filter }) => {
+      try {
+        const client = await getClient();
+        const values = await client
+          .db(db)
+          .collection(collection)
+          .distinct(field, filter ? parseExtendedJson<Document>(filter) : {});
+        return ok({ count: values.length, values });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "estimatedDocumentCount",
+    "Fast collection-cardinality estimate from collection metadata (no filter).",
+    { ...collArg },
+    async ({ db, collection }) => {
+      try {
+        const client = await getClient();
+        const count = await client.db(db).collection(collection).estimatedDocumentCount();
+        return ok({ count });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "explain",
+    "Run db.command({ explain: <command>, verbosity }) to get a query plan.",
+    {
+      ...dbArg,
+      command: jsonDoc.describe(
+        'Command to explain, e.g. {"find": "users", "filter": {"age": {"$gt": 21}}}.',
+      ),
+      verbosity: z
+        .enum(["queryPlanner", "executionStats", "allPlansExecution"])
+        .default("queryPlanner"),
+    },
+    async ({ db, command, verbosity }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .command({ explain: parseExtendedJson<Document>(command), verbosity });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- atomic write helpers ----------
+
+  server.tool(
+    "replaceOne",
+    "Replace a single document matching the filter.",
+    {
+      ...collArg,
+      filter: jsonDoc,
+      replacement: jsonDoc,
+      upsert: z.boolean().default(false),
+    },
+    async ({ db, collection, filter, replacement, upsert }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .collection(collection)
+          .replaceOne(
+            parseExtendedJson<Document>(filter),
+            parseExtendedJson<Document>(replacement),
+            { upsert },
+          );
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "findOneAndUpdate",
+    "Atomically update one document and return it.",
+    {
+      ...collArg,
+      filter: jsonDoc,
+      update: jsonDoc.describe("Update document or pipeline. Use operators like $set."),
+      projection: jsonDoc.optional(),
+      sort: jsonDoc.optional(),
+      upsert: z.boolean().default(false),
+      returnDocument: z.enum(["before", "after"]).default("after"),
+    },
+    async ({ db, collection, filter, update, projection, sort, upsert, returnDocument }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .collection(collection)
+          .findOneAndUpdate(
+            parseExtendedJson<Document>(filter),
+            parseExtendedJson<Document>(update),
+            {
+              projection: projection ? parseExtendedJson<Document>(projection) : undefined,
+              sort: sort ? parseExtendedJson<Document>(sort) : undefined,
+              upsert,
+              returnDocument,
+              includeResultMetadata: true,
+            },
+          );
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "findOneAndReplace",
+    "Atomically replace one document and return it.",
+    {
+      ...collArg,
+      filter: jsonDoc,
+      replacement: jsonDoc,
+      projection: jsonDoc.optional(),
+      sort: jsonDoc.optional(),
+      upsert: z.boolean().default(false),
+      returnDocument: z.enum(["before", "after"]).default("after"),
+    },
+    async ({ db, collection, filter, replacement, projection, sort, upsert, returnDocument }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .collection(collection)
+          .findOneAndReplace(
+            parseExtendedJson<Document>(filter),
+            parseExtendedJson<Document>(replacement),
+            {
+              projection: projection ? parseExtendedJson<Document>(projection) : undefined,
+              sort: sort ? parseExtendedJson<Document>(sort) : undefined,
+              upsert,
+              returnDocument,
+              includeResultMetadata: true,
+            },
+          );
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "findOneAndDelete",
+    "Atomically delete one document and return it.",
+    {
+      ...collArg,
+      filter: jsonDoc,
+      projection: jsonDoc.optional(),
+      sort: jsonDoc.optional(),
+    },
+    async ({ db, collection, filter, projection, sort }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .collection(collection)
+          .findOneAndDelete(parseExtendedJson<Document>(filter), {
+            projection: projection ? parseExtendedJson<Document>(projection) : undefined,
+            sort: sort ? parseExtendedJson<Document>(sort) : undefined,
+            includeResultMetadata: true,
+          });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "bulkWrite",
+    "Run a bulkWrite() with insertOne/updateOne/updateMany/replaceOne/deleteOne/deleteMany operations.",
+    {
+      ...collArg,
+      operations: jsonArray.describe(
+        'Array of bulk operations, e.g. [{"insertOne": {"document": {...}}}, {"updateOne": {"filter": {...}, "update": {"$set": {...}}}}].',
+      ),
+      ordered: z.boolean().default(true),
+    },
+    async ({ db, collection, operations, ordered }) => {
+      try {
+        const client = await getClient();
+        const ops = parseExtendedJson<Document[]>(operations);
+        if (!Array.isArray(ops)) throw new Error("operations must be an array");
+        const result = await client
+          .db(db)
+          .collection(collection)
+          .bulkWrite(ops as AnyBulkWriteOperation<Document>[], { ordered });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- views & Atlas Search ----------
+
+  server.tool(
+    "createView",
+    "Create a read-only view backed by an aggregation pipeline on a source collection.",
+    {
+      ...dbArg,
+      view: z.string().min(1).describe("Name of the view to create."),
+      viewOn: z.string().min(1).describe("Source collection the view reads from."),
+      pipeline: jsonArray.describe("Aggregation pipeline that defines the view."),
+    },
+    async ({ db, view, viewOn, pipeline }) => {
+      try {
+        const stages = parseExtendedJson<Document[]>(pipeline);
+        if (!Array.isArray(stages)) throw new Error("pipeline must be an array of stages");
+        const client = await getClient();
+        await client.db(db).createCollection(view, { viewOn, pipeline: stages });
+        return ok({ ok: 1, db, view, viewOn });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "listSearchIndexes",
+    "List Atlas Search indexes on a collection.",
+    { ...collArg, name: z.string().optional().describe("Filter to a single index name.") },
+    async ({ db, collection, name }) => {
+      try {
+        const client = await getClient();
+        const coll = client.db(db).collection(collection);
+        const cursor = name ? coll.listSearchIndexes(name) : coll.listSearchIndexes();
+        const indexes = await cursor.toArray();
+        return ok(indexes);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "createSearchIndex",
+    "Create an Atlas Search index. Requires an Atlas cluster.",
+    {
+      ...collArg,
+      name: z.string().min(1).describe("Index name."),
+      definition: jsonDoc.describe("Search index definition (mappings, analyzers, etc.)."),
+      type: z.enum(["search", "vectorSearch"]).default("search"),
+    },
+    async ({ db, collection, name, definition, type }) => {
+      try {
+        const client = await getClient();
+        const createdName = await client
+          .db(db)
+          .collection(collection)
+          .createSearchIndex({
+            name,
+            type,
+            definition: parseExtendedJson<Document>(definition),
+          });
+        return ok({ name: createdName });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "updateSearchIndex",
+    "Update an Atlas Search index definition.",
+    {
+      ...collArg,
+      name: z.string().min(1),
+      definition: jsonDoc,
+    },
+    async ({ db, collection, name, definition }) => {
+      try {
+        const client = await getClient();
+        await client
+          .db(db)
+          .collection(collection)
+          .updateSearchIndex(name, parseExtendedJson<Document>(definition));
+        return ok({ ok: 1, name });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "dropSearchIndex",
+    "Drop an Atlas Search index by name.",
+    { ...collArg, name: z.string().min(1) },
+    async ({ db, collection, name }) => {
+      try {
+        const client = await getClient();
+        await client.db(db).collection(collection).dropSearchIndex(name);
+        return ok({ ok: 1, name });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- user / role management ----------
+  // These wrap the underlying database commands. Caller must be authenticated with
+  // sufficient privileges on the target database (typically userAdmin or root).
+
+  const roleArg = z
+    .union([z.string(), z.array(z.union([z.string(), z.record(z.string(), z.unknown())]))])
+    .describe(
+      'Role name or array of role specs. e.g. ["read"] or [{"role": "readWrite", "db": "app"}].',
+    );
+
+  server.tool(
+    "createUser",
+    "Create a database user (db.command({ createUser, pwd, roles })).",
+    {
+      ...dbArg,
+      user: z.string().min(1).describe("Username to create."),
+      pwd: z.string().min(1).describe("Password for the new user."),
+      roles: roleArg,
+      customData: jsonDoc.optional(),
+    },
+    async ({ db, user, pwd, roles, customData }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          createUser: user,
+          pwd,
+          roles: Array.isArray(roles) ? roles : [roles],
+          ...(customData ? { customData: parseExtendedJson<Document>(customData) } : {}),
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "updateUser",
+    "Update a database user. Any of pwd / roles / customData can be changed.",
+    {
+      ...dbArg,
+      user: z.string().min(1),
+      pwd: z.string().optional(),
+      roles: roleArg.optional(),
+      customData: jsonDoc.optional(),
+    },
+    async ({ db, user, pwd, roles, customData }) => {
+      try {
+        const client = await getClient();
+        const cmd: Document = { updateUser: user };
+        if (pwd !== undefined) cmd.pwd = pwd;
+        if (roles !== undefined) cmd.roles = Array.isArray(roles) ? roles : [roles];
+        if (customData !== undefined) cmd.customData = parseExtendedJson<Document>(customData);
+        const result = await client.db(db).command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "dropUser",
+    "Drop a database user. Requires confirm: true.",
+    { ...dbArg, user: z.string().min(1), confirm: z.literal(true) },
+    async ({ db, user }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ dropUser: user });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "grantRolesToUser",
+    "Grant roles to an existing user.",
+    { ...dbArg, user: z.string().min(1), roles: roleArg },
+    async ({ db, user, roles }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          grantRolesToUser: user,
+          roles: Array.isArray(roles) ? roles : [roles],
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "revokeRolesFromUser",
+    "Revoke roles from an existing user.",
+    { ...dbArg, user: z.string().min(1), roles: roleArg },
+    async ({ db, user, roles }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          revokeRolesFromUser: user,
+          roles: Array.isArray(roles) ? roles : [roles],
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }
