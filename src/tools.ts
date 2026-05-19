@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AnyBulkWriteOperation, Document, MongoClient } from "mongodb";
 import { z } from "zod";
-import { parseExtendedJson, stringifyEJson } from "./mongo";
+import { parseExtendedJson, stringifyEJson } from "./ejson";
 
 type ToolResult = {
   content: { type: "text"; text: string }[];
@@ -22,7 +22,7 @@ const AUTH_ERROR_CODES = new Set([
   390, // CommandNotSupportedOnView
 ]);
 
-function permissionHint(err: unknown): string | null {
+export function permissionHint(err: unknown): string | null {
   if (!err || typeof err !== "object") return null;
   const e = err as { code?: unknown; codeName?: unknown; message?: unknown };
   const code = typeof e.code === "number" ? e.code : undefined;
@@ -43,7 +43,7 @@ function permissionHint(err: unknown): string | null {
   return "Unauthorized: the MongoDB user in MONGODB_URI lacks privileges for this operation. Grant a role that covers it on the target database, e.g. `readWrite` (CRUD + createIndex/dropIndex), `dbAdmin` (DDL, profiler, views), or `dbOwner` (both). For cluster-wide access use `readWriteAnyDatabase` / `dbAdminAnyDatabase`. User management tools additionally require `userAdmin` on the target db. See README → 'MongoDB user role requirements'.";
 }
 
-function fail(err: unknown): ToolResult {
+export function fail(err: unknown): ToolResult {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
   const hint = permissionHint(err);
   const text = hint ? `${message}\n\n${hint}` : message;
