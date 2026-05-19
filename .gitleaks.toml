@@ -1,0 +1,21 @@
+# Gitleaks configuration. The default ruleset is fine; we only allowlist
+# test fixtures and example placeholders that look like secrets but are not.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and example placeholders"
+paths = [
+  '''vitest\.config\.mts''',
+  '''wrangler\.test\.jsonc''',
+  '''\.dev\.vars\.example''',
+  '''test/.*\.test\.ts''',
+]
+regexes = [
+  # Cookie encryption test fixture — 64 hex zeros pattern, never a real key.
+  '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef''',
+  # WorkOS placeholder credentials used only inside miniflare/vitest.
+  '''sk_test_workos_client_secret''',
+  '''client_test''',
+]
