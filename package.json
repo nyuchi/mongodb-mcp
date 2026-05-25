@@ -16,7 +16,7 @@
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.6.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@workos-inc/node": "^9.3.0",
+    "@workos-inc/node": "^9.3.1",
     "agents": "^0.12.4",
     "hono": "^4.12.19",
     "jose": "^6.2.3",
