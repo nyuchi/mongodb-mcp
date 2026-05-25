@@ -18,7 +18,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@workos-inc/node": "^9.3.0",
     "agents": "^0.12.4",
-    "hono": "^4.12.19",
+    "hono": "^4.12.23",
     "jose": "^6.2.3",
     "mongodb": "^7.2.0",
     "zod": "^4.4.3"
