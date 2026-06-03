@@ -6,6 +6,8 @@
 // The agent + MCP are Cloudflare Agents (Durable Objects); see agent-do.ts / mcp.ts.
 
 import { getAgentByName } from "agents";
+import { z } from "zod";
+import { BoundaryGuardError } from "./africa";
 import { submitBulkIntent, submitSeedTask } from "./enqueue";
 import { listRequeuable, markStatus } from "./ledger";
 import { bulkIntentSchema, seedTaskInputSchema, type SeedTask } from "./types";
@@ -60,8 +62,16 @@ async function handleSubmit(request: Request, env: Env): Promise<Response> {
       202,
     );
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return json({ error: message }, 400);
+    // Never echo raw exception text to the caller (CodeQL: info exposure via
+    // stack trace). Surface only safe, intentional messages; log the rest.
+    if (e instanceof z.ZodError) {
+      return json({ error: "invalid request body", issues: e.issues }, 400);
+    }
+    if (e instanceof BoundaryGuardError) {
+      return json({ error: "region is outside the ingestion boundary" }, 422);
+    }
+    console.error("submit failed", { error: e instanceof Error ? e.message : String(e) });
+    return json({ error: "could not process task" }, 500);
   }
 }
 
