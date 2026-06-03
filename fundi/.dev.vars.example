@@ -1,0 +1,18 @@
+# Copy to `fundi/.dev.vars` for `wrangler dev -c fundi/wrangler.jsonc`.
+# Never commit the real file. In production set these with `wrangler secret put`.
+
+# MongoDB connection string (the platform cluster Fundi writes tier-0 records to).
+MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"
+
+# Anthropic API key for generate_description. If absent, descriptions are left null.
+ANTHROPIC_API_KEY="sk-ant-..."
+
+# what3words API key (write-time convenience layer). If absent, what3words is null.
+WHAT3WORDS_API_KEY="..."
+
+# Optional bearer token gating POST /tasks. If unset, the endpoint is open.
+# FUNDI_API_TOKEN="replace-with-`openssl rand -hex 32`"
+
+# Dev-only: allow the bundled African-capitals fallback when places.placesGeo
+# has no capital data. Never set "true" in production.
+# FUNDI_ALLOW_FALLBACK_CAPITALS="true"

@@ -1,0 +1,84 @@
+import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// The task model (§2 of the build brief). A task is an atomic unit of
+// ingestion work. Every source — search-miss, app empty-state, ops MCP — emits
+// this same shape and hits the same queue.
+// ---------------------------------------------------------------------------
+
+export const regionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("point_radius"),
+    center: z.tuple([z.number(), z.number()]).describe("[lng, lat]"),
+    radiusMeters: z.number().positive().max(50_000),
+  }),
+  z.object({
+    kind: z.literal("bbox"),
+    bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]).describe("[s, w, n, e]"),
+  }),
+  z.object({
+    kind: z.literal("admin"),
+    adminPlaceId: z.string().min(1),
+  }),
+]);
+
+export type Region = z.infer<typeof regionSchema>;
+
+export const categoriesSchema = z
+  .union([z.array(z.string()).min(1), z.literal("all")])
+  .describe('OSM-derived place categories, or "all" for the full taxonomy.');
+
+export const sourceSchema = z.object({
+  kind: z.enum(["search_miss", "app_empty_state", "ops_mcp"]),
+  surface: z.string().optional(),
+  requestedByPersonId: z.string().optional(),
+  query: z.string().optional(),
+});
+
+export type TaskSource = z.infer<typeof sourceSchema>;
+
+export type TaskStatus = "queued" | "processing" | "done" | "failed" | "partial";
+
+export interface TaskResult {
+  placesCreated: number;
+  entitiesCreated: number;
+  skipped: number;
+  notes?: string;
+}
+
+export interface SeedTask {
+  taskId: string;
+  taskType: "seed_region";
+  region: Region;
+  categories: string[] | "all";
+  source: TaskSource;
+  status: TaskStatus;
+  priority: number;
+  dedupKey: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: TaskResult;
+}
+
+// Accepted on the wire (POST /tasks and the MCP seed_region tool). The server
+// fills taskId/status/dedupKey/createdAt.
+export const seedTaskInputSchema = z.object({
+  region: regionSchema,
+  categories: categoriesSchema.default("all"),
+  source: sourceSchema,
+  priority: z.number().int().optional(),
+});
+
+export type SeedTaskInput = z.infer<typeof seedTaskInputSchema>;
+
+// A bulk intent fans out (via a generator) into many atomic tasks.
+export const bulkIntentSchema = z.object({
+  intent: z.enum(["african_capitals"]),
+  radiusMeters: z.number().positive().max(50_000).default(20_000),
+  categories: categoriesSchema.default("all"),
+  source: sourceSchema.default({ kind: "ops_mcp" }),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+export type BulkIntent = z.infer<typeof bulkIntentSchema>;
