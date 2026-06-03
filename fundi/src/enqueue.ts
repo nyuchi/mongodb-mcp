@@ -2,7 +2,7 @@
 // seed_region tool are two faces of this (§5): build → guard → ledger → queue.
 // User-initiated work outranks bulk ops in priority (§2).
 
-import { boundaryBbox, guardRegion } from "./africa";
+import { BoundaryGuardError, boundaryBbox, guardRegion } from "./africa";
 import { expandBulkIntent } from "./generators";
 import { findPendingByDedup, insertTask, type LedgerEnv } from "./ledger";
 import { type BulkIntent, type Region, type SeedTask, type SeedTaskInput } from "./types";
@@ -38,7 +38,7 @@ export async function submitSeedTask(
   // Africa boundary guard on acceptance (admin regions are deferred to the agent
   // once their centroid resolves).
   const guard = guardRegion(input.region, boundaryBbox(env));
-  if (!guard.ok) throw new Error(`boundary guard rejected region: ${guard.reason}`);
+  if (!guard.ok) throw new BoundaryGuardError(guard.reason ?? "outside boundary");
 
   const dedupKey = dedupKeyFor(input.region, input.categories);
   const existing = await findPendingByDedup(env, dedupKey);

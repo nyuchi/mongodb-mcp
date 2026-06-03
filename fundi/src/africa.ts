@@ -11,6 +11,15 @@ export interface Bbox {
   e: number;
 }
 
+// Thrown when a region falls outside the ingestion boundary. The submit handler
+// maps this to a clean 4xx without echoing internal exception text.
+export class BoundaryGuardError extends Error {
+  constructor(reason: string) {
+    super(`boundary guard rejected region: ${reason}`);
+    this.name = "BoundaryGuardError";
+  }
+}
+
 // Generous continental envelope for Africa (incl. nearby islands).
 const DEFAULT_AFRICA_BBOX: Bbox = { s: -36, w: -26, n: 38, e: 64 };
 
