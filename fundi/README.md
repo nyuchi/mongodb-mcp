@@ -126,16 +126,16 @@ endpoint would be resolved from the provider registry like any other source.
 ```sh
 npm install
 
-# 1. Create the D1 ledger and paste its id into fundi/wrangler.jsonc
-npx wrangler d1 create fundi-ledger
-npx wrangler d1 migrations apply fundi-ledger --remote -c fundi/wrangler.jsonc
+# 1. Create the D1 ledger (its id is written into fundi/wrangler.jsonc)
+npx wrangler d1 create fundi-ingestion-ledger
+npx wrangler d1 migrations apply fundi-ingestion-ledger --remote -c fundi/wrangler.jsonc
 
 # 2. (optional) Create the dedupe KV namespace and paste its id
 npx wrangler kv namespace create DEDUP_KV
 
 # 3. Create the queues
-npx wrangler queues create fundi-tasks
-npx wrangler queues create fundi-tasks-dlq
+npx wrangler queues create fundi-ingestion-tasks
+npx wrangler queues create fundi-ingestion-tasks-dlq
 
 # 4. Secrets (never inlined)
 npx wrangler secret put MONGODB_URI       -c fundi/wrangler.jsonc
@@ -145,6 +145,11 @@ npx wrangler secret put WHAT3WORDS_API_KEY -c fundi/wrangler.jsonc
 # 5. Deploy
 npm run deploy:fundi
 ```
+
+> The deploying Cloudflare API token needs **Workers Scripts: Edit**, **D1: Edit**,
+> **Workers KV Storage: Edit**, **Queues: Edit**, and — for the
+> `fundi-ingestion.nyuchi.dev` custom domain — **Zone › Workers Routes: Edit** and
+> **Zone › DNS: Edit** on the `nyuchi.dev` zone.
 
 ## Run a first task
 
