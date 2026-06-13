@@ -4,15 +4,22 @@
 # MongoDB connection string (the platform cluster Fundi writes tier-0 records to).
 MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"
 
-# Anthropic API key for generate_description. If absent, descriptions are left null.
-ANTHROPIC_API_KEY="sk-ant-..."
+# --- WorkOS AuthKit gate (same model as the mongodb-mcp worker) ---
+WORKOS_CLIENT_SECRET="sk_..."
+COOKIE_ENCRYPTION_KEY="replace-with-`openssl rand -hex 32`"
+# Optional: restrict to specific WorkOS organizations.
+# WORKOS_ALLOWED_ORG_IDS="org_abc,org_def"
 
 # what3words API key (write-time convenience layer). If absent, what3words is null.
 WHAT3WORDS_API_KEY="..."
 
-# Optional bearer token gating POST /tasks. If unset, the endpoint is open.
+# Optional bearer token gating POST /tasks (server-to-server app surfaces).
 # FUNDI_API_TOKEN="replace-with-`openssl rand -hex 32`"
 
 # Dev-only: allow the bundled African-capitals fallback when places.placesGeo
 # has no capital data. Never set "true" in production.
 # FUNDI_ALLOW_FALLBACK_CAPITALS="true"
+
+# Note: generate_description uses the Workers AI binding (Kimi via the shamwari
+# AI Gateway) — no API key needed. `wrangler dev` proxies Workers AI to the
+# remote service.

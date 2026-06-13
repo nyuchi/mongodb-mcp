@@ -60,16 +60,16 @@ foundation the sibling MCP uses:
 The agent frame is real so new skills register without rewriting the consumer.
 Today's skills:
 
-| Skill                       | What it does                                                             |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `tile_region`               | Region → bounded Overpass tiles (continental coverage ≠ one call).       |
-| `overpass_lookup`           | OSM/Overpass features per tile/category (`node+way`, `out tags center`). |
-| `compute_pluscode`          | Open Location Code from lat/lng, locally. Always runs.                   |
-| `resolve_what3words`        | lat/lng → 3-word address (best-effort, write-time only).                 |
-| `enrich_wikidata`           | `wikidata` tag → QID labels / `sameAs` / identifiers (best-effort).      |
-| `generate_description`      | Anthropic description **with the v10 hedge guard** (clean-or-absent).    |
-| `classify_place_and_entity` | OSM tags → business vs natural; `placeType[]` + `schemaOrgType`.         |
-| `write_records`             | Idempotent upsert to `places.places` (+ linked `entity.entities`).       |
+| Skill                       | What it does                                                                |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `tile_region`               | Region → bounded Overpass tiles (continental coverage ≠ one call).          |
+| `overpass_lookup`           | OSM/Overpass features per tile/category (`node+way`, `out tags center`).    |
+| `compute_pluscode`          | Open Location Code from lat/lng, locally. Always runs.                      |
+| `resolve_what3words`        | lat/lng → 3-word address (best-effort, write-time only).                    |
+| `enrich_wikidata`           | `wikidata` tag → QID labels / `sameAs` / identifiers (best-effort).         |
+| `generate_description`      | Workers AI (Kimi via the shamwari AI Gateway) **with the v10 hedge guard**. |
+| `classify_place_and_entity` | OSM tags → business vs natural; `placeType[]` + `schemaOrgType`.            |
+| `write_records`             | Idempotent upsert to `places.places` (+ linked `entity.entities`).          |
 
 Per task: tile → for each tile `overpass_lookup` → **dedupe on OSM id across
 tiles** (keep the richest element — the fix for the duplicate "Rhino Safari Camp"
@@ -96,6 +96,25 @@ null beats a polluted string. See `src/skills/description.ts` (`isHedge`).
 
 The `POST /tasks` HTTP endpoint and the MCP `seed_region` tool are two faces of
 the same enqueue path (`src/enqueue.ts`).
+
+## Auth (platform team only)
+
+The `/mcp` surface is gated by **WorkOS AuthKit** — the same model as the
+sibling `mongodb-mcp` worker (`OAuthProvider` → `AuthkitHandler` → `props`).
+`WORKOS_ALLOWED_ORG_IDS` restricts which orgs may authenticate;
+`WORKOS_REQUIRED_PERMISSION` (default `fundi:access`) requires that permission
+claim. The `POST /tasks` endpoint is server-to-server (app surfaces), gated by an
+optional `FUNDI_API_TOKEN` bearer; `/health` is open.
+
+## Why no AI when driven over MCP
+
+`generate_description` runs **only** in the autonomous queue/app-surface path —
+where the FundiAgent processes a task with no human/LLM in the loop. When a
+platform-team LLM drives Fundi over MCP, that LLM is already the intelligence;
+Fundi does not run a second model to write prose. The description model is
+**Workers AI (Kimi `@cf/moonshotai/kimi-k2.6` by default)**, routed through the
+**shamwari** AI Gateway for cost control + observability. Override with
+`FUNDI_AI_MODEL` (e.g. a Qwen id) / `FUNDI_AI_GATEWAY`.
 
 ## How the sources all enqueue the same task
 
@@ -130,26 +149,33 @@ npm install
 npx wrangler d1 create fundi-ingestion-ledger
 npx wrangler d1 migrations apply fundi-ingestion-ledger --remote -c fundi/wrangler.jsonc
 
-# 2. (optional) Create the dedupe KV namespace and paste its id
+# 2. Create the KV namespaces (DEDUP_KV cache + OAUTH_KV for the WorkOS gate)
 npx wrangler kv namespace create DEDUP_KV
+npx wrangler kv namespace create OAUTH_KV
 
 # 3. Create the queues
 npx wrangler queues create fundi-ingestion-tasks
 npx wrangler queues create fundi-ingestion-tasks-dlq
 
-# 4. Secrets (never inlined)
-npx wrangler secret put MONGODB_URI       -c fundi/wrangler.jsonc
-npx wrangler secret put ANTHROPIC_API_KEY -c fundi/wrangler.jsonc
-npx wrangler secret put WHAT3WORDS_API_KEY -c fundi/wrangler.jsonc
+# 4. Secrets (never inlined). generate_description uses the Workers AI binding,
+#    so there is no LLM API key to set.
+npx wrangler secret put MONGODB_URI           -c fundi/wrangler.jsonc
+npx wrangler secret put WORKOS_CLIENT_SECRET  -c fundi/wrangler.jsonc   # WorkOS gate
+npx wrangler secret put COOKIE_ENCRYPTION_KEY -c fundi/wrangler.jsonc   # openssl rand -hex 32
+npx wrangler secret put WHAT3WORDS_API_KEY    -c fundi/wrangler.jsonc   # optional
 
 # 5. Deploy
 npm run deploy:fundi
 ```
 
 > The deploying Cloudflare API token needs **Workers Scripts: Edit**, **D1: Edit**,
-> **Workers KV Storage: Edit**, **Queues: Edit**, and — for the
+> **Workers KV Storage: Edit**, **Queues: Edit**, **Workers AI: Read**, and — for the
 > `fundi-ingestion.nyuchi.dev` custom domain — **Zone › Workers Routes: Edit** and
 > **Zone › DNS: Edit** on the `nyuchi.dev` zone.
+>
+> WorkOS: register `https://fundi-ingestion.nyuchi.dev/callback` as a redirect URI
+> on the AuthKit app (`WORKOS_CLIENT_ID`), and grant the platform team the
+> `fundi:access` permission (or change `WORKOS_REQUIRED_PERMISSION`).
 
 ## Run a first task
 

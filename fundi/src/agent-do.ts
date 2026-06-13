@@ -62,10 +62,7 @@ export class FundiAgent extends Agent<Env, FundiState> {
 
     try {
       const client = await this.getMongo();
-      const deps = await buildDeps(
-        client,
-        this.env as unknown as Record<string, string | undefined>,
-      );
+      const deps = await buildDeps(client, this.env);
       const result = await runTask(task, deps);
       this.setState({ ...this.state, status: "done", result });
       await markResult(this.env, task.taskId, "done", result);
