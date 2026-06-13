@@ -41,13 +41,13 @@
     {
       "binding": "DB",
       "database_name": "fundi-ingestion-ledger",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "1ca0ed44-20fc-4cd5-a6c1-86b40daf1041",
       "migrations_dir": "migrations"
     }
   ],
 
   // Optional OSM-id dedupe / rate-limit cache.
-  "kv_namespaces": [{ "binding": "DEDUP_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "kv_namespaces": [{ "binding": "DEDUP_KV", "id": "7e726479ef2048c5b12e51bf1cc25141" }],
 
   // Hourly sweeper for failed/partial stragglers.
   "triggers": { "crons": ["0 * * * *"] },
