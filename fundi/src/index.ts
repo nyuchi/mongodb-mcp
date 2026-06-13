@@ -1,13 +1,18 @@
-// Fundi worker entrypoint. Three faces of one engine:
-//   • fetch        — the MCP surface (/mcp) and the POST /tasks submit endpoint.
-//   • queue        — the consumer: routes each task to a durable FundiAgent (RPC).
-//   • scheduled    — a light sweeper that re-enqueues tasks the agent's own
-//                    retries could not resolve.
+// Fundi worker entrypoint. The MCP surface (/mcp) is gated by WorkOS AuthKit —
+// the same model as the sibling mongodb-mcp worker — for the platform team only.
+// Three faces of one engine:
+//   • fetch     — OAuthProvider: /mcp (WorkOS-gated) + the default handler
+//                 (/tasks submit, /health, and the /authorize /callback dance).
+//   • queue     — the consumer: routes each task to a durable FundiAgent (RPC).
+//   • scheduled — a light sweeper that re-enqueues tasks the agent's own
+//                 retries could not resolve.
 // The agent + MCP are Cloudflare Agents (Durable Objects); see agent-do.ts / mcp.ts.
 
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getAgentByName } from "agents";
 import { z } from "zod";
 import { BoundaryGuardError } from "./africa";
+import { AuthkitHandler } from "./authkit-handler";
 import { submitBulkIntent, submitSeedTask } from "./enqueue";
 import { listRequeuable, markStatus } from "./ledger";
 import { bulkIntentSchema, seedTaskInputSchema, type SeedTask } from "./types";
@@ -15,8 +20,6 @@ import { FundiMcp } from "./mcp";
 import { FundiAgent } from "./agent-do";
 
 export { FundiAgent, FundiMcp };
-
-const mcpHandler = FundiMcp.serve("/mcp");
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
@@ -75,20 +78,34 @@ async function handleSubmit(request: Request, env: Env): Promise<Response> {
   }
 }
 
-export default {
+// The OAuthProvider default handler: everything that is NOT the /mcp API route.
+// /tasks (token-gated, server-to-server) and /health are handled here directly;
+// the rest (/, /authorize, /callback, /favicon) goes to the WorkOS AuthkitHandler.
+const defaultHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-      return mcpHandler.fetch(request, env, ctx);
-    }
     if (url.pathname === "/tasks" && request.method === "POST") {
       return handleSubmit(request, env);
     }
-    if (url.pathname === "/health" || url.pathname === "/") {
-      return json({ worker: "fundi", status: "ok" });
+    if (url.pathname === "/health") {
+      return json({ worker: "fundi-ingestion", status: "ok" });
     }
-    return json({ error: "not found" }, 404);
+    return AuthkitHandler.fetch(request, env, ctx);
+  },
+};
+
+const oauthProvider = new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: FundiMcp.serve("/mcp") as never,
+  defaultHandler: defaultHandler as never,
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  clientRegistrationEndpoint: "/register",
+});
+
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return oauthProvider.fetch(request, env, ctx);
   },
 
   // Queue consumer: hand each task to its durable agent.
