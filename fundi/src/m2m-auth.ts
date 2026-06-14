@@ -25,14 +25,20 @@ function stripTrailingSlashes(s: string): string {
   return s.slice(0, end);
 }
 
-export function m2mConfig(env: {
-  WORKOS_AUTHKIT_DOMAIN?: string;
-  WORKOS_M2M_CLIENT_ID?: string;
-  WORKOS_ALLOWED_ORG_IDS?: string;
-}): M2MConfig | null {
+export function m2mConfig(
+  env: {
+    WORKOS_AUTHKIT_DOMAIN?: string;
+    WORKOS_M2M_CLIENT_ID?: string;
+    WORKOS_ALLOWED_ORG_IDS?: string;
+  },
+  // Override the expected `aud` (comma-separated) to gate a surface against a
+  // different M2M application — e.g. /mcp (internal MCP app) vs /tasks (fundi
+  // agents app). Defaults to WORKOS_M2M_CLIENT_ID (the internal MCP app).
+  audienceCsv?: string,
+): M2MConfig | null {
   const trimmed = env.WORKOS_AUTHKIT_DOMAIN?.trim();
   const authkitDomain = trimmed ? stripTrailingSlashes(trimmed) : undefined;
-  const audience = (env.WORKOS_M2M_CLIENT_ID ?? "")
+  const audience = (audienceCsv ?? env.WORKOS_M2M_CLIENT_ID ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);

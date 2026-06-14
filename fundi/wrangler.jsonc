@@ -62,6 +62,7 @@
   "vars": {
     "WORKOS_AUTHKIT_DOMAIN": "",
     "WORKOS_M2M_CLIENT_ID": "",
+    "WORKOS_AGENTS_M2M_CLIENT_ID": "",
     "FUNDI_AI_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
     "FUNDI_AI_GATEWAY": "shamwari",
     "FUNDI_BOUNDARY_BBOX": "-36,-26,38,64"

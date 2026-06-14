@@ -100,25 +100,33 @@ the same enqueue path (`src/enqueue.ts`).
 ## Auth (platform team only) — WorkOS M2M
 
 Fundi is internal: `/mcp` and `/tasks` are gated by **WorkOS M2M
-(`client_credentials`)**. A caller exchanges its client id/secret at
-`https://<authkit_domain>/oauth2/token` for a short-lived JWT, then calls Fundi
-with `Authorization: Bearer <jwt>`. The worker verifies that JWT **statelessly**
-against the environment JWKS — no OAuth redirect, no session KV (`m2m-auth.ts`):
+(`client_credentials`)** — but by **two different M2M applications**, matching
+how the platform models its WorkOS apps:
+
+- **`/mcp`** → the **internal MCP app** (`WORKOS_M2M_CLIENT_ID`), shared by all
+  internal MCP servers (this worker and `mongodb-mcp`).
+- **`/tasks`** → the **fundi agents app** (`WORKOS_AGENTS_M2M_CLIENT_ID`),
+  shared by all fundi agents. Falls back to the internal MCP app until the
+  agents app is set, and also accepts an optional static `FUNDI_API_TOKEN`.
+
+A caller exchanges its client id/secret at `https://<authkit_domain>/oauth2/token`
+for a short-lived JWT, then calls Fundi with `Authorization: Bearer <jwt>`. The
+worker verifies it **statelessly** against the environment JWKS — no OAuth
+redirect, no session KV (`m2m-auth.ts`):
 
 - signature → `https://<authkit_domain>/oauth2/jwks`
 - `iss` → `https://<authkit_domain>` (`WORKOS_AUTHKIT_DOMAIN`)
-- `aud` → our M2M app client id(s) (`WORKOS_M2M_CLIENT_ID`)
+- `aud` → the surface's M2M app client id (above)
 - `org_id` → optional allowlist (`WORKOS_ALLOWED_ORG_IDS`)
 
-It **fails closed**: with no M2M config the gate denies (503). `/tasks` also
-accepts a static `FUNDI_API_TOKEN` bearer for simple server-to-server surfaces;
-`/health` and `/` are open.
+It **fails closed** (503 when unconfigured); `/health` and `/` are open. Public,
+non-internal MCP servers would instead use a WorkOS **OAuth** (auth-flow) app —
+not built here.
 
 **Connecting a client:** Claude's hosted connector speaks OAuth, not
 `client_credentials`, so consume Fundi from **Claude Code** (or a small proxy)
-that exchanges the M2M credential for a token and sets the `Authorization`
-header. `WORKOS_AUTHKIT_DOMAIN` + `WORKOS_M2M_CLIENT_ID` are non-secret `vars`;
-the caller's client id/secret live with the caller, never in the worker.
+that mints the M2M token and sets the `Authorization` header. The WorkOS app ids
+are non-secret `vars`; each caller's client id/secret stays with the caller.
 
 ## Why no AI when driven over MCP
 
