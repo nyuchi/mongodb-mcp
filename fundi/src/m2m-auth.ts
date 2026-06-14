@@ -18,12 +18,20 @@ export interface M2MConfig {
   allowedOrgIds?: string[];
 }
 
+// Non-regex trailing-slash strip (avoids a polynomial-regex ReDoS surface).
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47 /* "/" */) end--;
+  return s.slice(0, end);
+}
+
 export function m2mConfig(env: {
   WORKOS_AUTHKIT_DOMAIN?: string;
   WORKOS_M2M_CLIENT_ID?: string;
   WORKOS_ALLOWED_ORG_IDS?: string;
 }): M2MConfig | null {
-  const authkitDomain = env.WORKOS_AUTHKIT_DOMAIN?.trim().replace(/\/+$/, "");
+  const trimmed = env.WORKOS_AUTHKIT_DOMAIN?.trim();
+  const authkitDomain = trimmed ? stripTrailingSlashes(trimmed) : undefined;
   const audience = (env.WORKOS_M2M_CLIENT_ID ?? "")
     .split(",")
     .map((s) => s.trim())

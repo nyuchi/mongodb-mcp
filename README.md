@@ -66,8 +66,6 @@ that refreshes and injects the header is the usual setup. The browser OAuth
 sign-in no longer applies. The snippets below show the URLs; add the
 `Authorization` header (or `--header` flag) per your client.
 
-[mcp-remote]: https://www.npmjs.com/package/mcp-remote
-
 ### Claude Desktop / Claude Code (CLI)
 
 Claude Desktop: edit `~/Library/Application Support/Claude/claude_desktop_config.json`
