@@ -1,25 +1,26 @@
-// Fundi worker entrypoint. The MCP surface (/mcp) is gated by WorkOS AuthKit —
-// the same model as the sibling mongodb-mcp worker — for the platform team only.
-// Three faces of one engine:
-//   • fetch     — OAuthProvider: /mcp (WorkOS-gated) + the default handler
-//                 (/tasks submit, /health, and the /authorize /callback dance).
+// Fundi worker entrypoint. /mcp and /tasks are internal, platform-team-only
+// surfaces gated by WorkOS M2M (client_credentials) — callers present a
+// short-lived WorkOS JWT as `Authorization: Bearer`, which we verify statelessly
+// (see m2m-auth.ts). No OAuth redirect, no session KV.
+//   • fetch     — /mcp (M2M-gated MCP) + /tasks (M2M or FUNDI_API_TOKEN) + /health + /.
 //   • queue     — the consumer: routes each task to a durable FundiAgent (RPC).
-//   • scheduled — a light sweeper that re-enqueues tasks the agent's own
-//                 retries could not resolve.
+//   • scheduled — a sweeper that re-enqueues tasks the agent's retries missed.
 // The agent + MCP are Cloudflare Agents (Durable Objects); see agent-do.ts / mcp.ts.
 
-import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getAgentByName } from "agents";
 import { z } from "zod";
 import { BoundaryGuardError } from "./africa";
-import { AuthkitHandler } from "./authkit-handler";
 import { submitBulkIntent, submitSeedTask } from "./enqueue";
+import { landingHtml } from "./landing";
 import { listRequeuable, markStatus } from "./ledger";
+import { denyResponse, m2mConfig, verifyM2M } from "./m2m-auth";
 import { bulkIntentSchema, seedTaskInputSchema, type SeedTask } from "./types";
 import { FundiMcp } from "./mcp";
 import { FundiAgent } from "./agent-do";
 
 export { FundiAgent, FundiMcp };
+
+const mcpHandler = FundiMcp.serve("/mcp");
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
@@ -28,15 +29,24 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function authorized(request: Request, env: Env): boolean {
-  const expected = env.FUNDI_API_TOKEN;
-  if (!expected) return true; // open if no token configured
-  return request.headers.get("authorization") === `Bearer ${expected}`;
+// WorkOS M2M gate. Fails closed: if the worker has no M2M config, deny.
+async function requireM2M(request: Request, env: Env): Promise<Response | null> {
+  const cfg = m2mConfig(env);
+  if (!cfg) return denyResponse(503, "auth not configured");
+  const result = await verifyM2M(request, cfg);
+  if (!result.ok) return denyResponse(result.status ?? 401, result.error ?? "unauthorized");
+  return null;
+}
+
+// /tasks accepts a valid M2M token OR the static FUNDI_API_TOKEN (server-to-server
+// app surfaces). At least one mechanism must be configured.
+async function requireTaskAuth(request: Request, env: Env): Promise<Response | null> {
+  const header = request.headers.get("authorization") ?? "";
+  if (env.FUNDI_API_TOKEN && header === `Bearer ${env.FUNDI_API_TOKEN}`) return null;
+  return requireM2M(request, env);
 }
 
 async function handleSubmit(request: Request, env: Env): Promise<Response> {
-  if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
-
   let body: unknown;
   try {
     body = await request.json();
@@ -78,34 +88,32 @@ async function handleSubmit(request: Request, env: Env): Promise<Response> {
   }
 }
 
-// The OAuthProvider default handler: everything that is NOT the /mcp API route.
-// /tasks (token-gated, server-to-server) and /health are handled here directly;
-// the rest (/, /authorize, /callback, /favicon) goes to the WorkOS AuthkitHandler.
-const defaultHandler = {
+export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+      const denied = await requireM2M(request, env);
+      if (denied) return denied;
+      return mcpHandler.fetch(request, env, ctx);
+    }
     if (url.pathname === "/tasks" && request.method === "POST") {
+      const denied = await requireTaskAuth(request, env);
+      if (denied) return denied;
       return handleSubmit(request, env);
     }
     if (url.pathname === "/health") {
       return json({ worker: "fundi-ingestion", status: "ok" });
     }
-    return AuthkitHandler.fetch(request, env, ctx);
-  },
-};
-
-const oauthProvider = new OAuthProvider({
-  apiRoute: "/mcp",
-  apiHandler: FundiMcp.serve("/mcp") as never,
-  defaultHandler: defaultHandler as never,
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/token",
-  clientRegistrationEndpoint: "/register",
-});
-
-export default {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return oauthProvider.fetch(request, env, ctx);
+    if (url.pathname === "/") {
+      return new Response(landingHtml(), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+    return json({ error: "not found" }, 404);
   },
 
   // Queue consumer: hand each task to its durable agent.

@@ -14,31 +14,26 @@ interface Env {
   TASK_QUEUE: Queue<import("./src/types").SeedTask>;
   // D1 task ledger (status, dedup, audit, result summaries).
   DB: D1Database;
-  // OSM-id dedupe cache / rate-limit windows.
+  // OSM-id dedupe / rate-limit cache.
   DEDUP_KV?: KVNamespace;
 
   // --- Workers AI (generate_description) ---
   // Inference binding; description generation routes through the AI Gateway.
   AI: Ai;
 
-  // --- WorkOS AuthKit gate (same model as the mongodb-mcp worker) ---
-  // KV used by workers-oauth-provider for codes/tokens and our OAuth state.
-  OAUTH_KV: KVNamespace;
-  // Public WorkOS client id (safe as a plain var).
-  WORKOS_CLIENT_ID: string;
-  // WorkOS API secret. `wrangler secret put WORKOS_CLIENT_SECRET`.
-  WORKOS_CLIENT_SECRET: string;
-  // High-entropy key signing the approved-clients cookie. `wrangler secret put`.
-  COOKIE_ENCRYPTION_KEY: string;
-  // Optional comma-separated WorkOS org ids allowed to authenticate.
+  // --- WorkOS M2M gate (client_credentials) ---
+  // AuthKit domain for the environment; the JWT issuer + JWKS base.
+  // e.g. "https://your-env.authkit.app".
+  WORKOS_AUTHKIT_DOMAIN?: string;
+  // Our M2M application client id(s) — the expected JWT `aud` (comma-separated).
+  WORKOS_M2M_CLIENT_ID?: string;
+  // Optional comma-separated WorkOS org ids allowed (checked against `org_id`).
   WORKOS_ALLOWED_ORG_IDS?: string;
-  // Optional WorkOS permission required to use the MCP (e.g. "fundi:access").
-  WORKOS_REQUIRED_PERMISSION?: string;
 
   // --- Secrets (set via `wrangler secret put`, never inlined) ---
   MONGODB_URI: string;
   WHAT3WORDS_API_KEY?: string;
-  // Optional bearer token gating POST /tasks (server-to-server app surfaces).
+  // Optional static bearer accepted on POST /tasks (server-to-server surfaces).
   FUNDI_API_TOKEN?: string;
 
   // --- Vars ---

@@ -97,14 +97,28 @@ null beats a polluted string. See `src/skills/description.ts` (`isHedge`).
 The `POST /tasks` HTTP endpoint and the MCP `seed_region` tool are two faces of
 the same enqueue path (`src/enqueue.ts`).
 
-## Auth (platform team only)
+## Auth (platform team only) — WorkOS M2M
 
-The `/mcp` surface is gated by **WorkOS AuthKit** — the same model as the
-sibling `mongodb-mcp` worker (`OAuthProvider` → `AuthkitHandler` → `props`).
-`WORKOS_ALLOWED_ORG_IDS` restricts which orgs may authenticate;
-`WORKOS_REQUIRED_PERMISSION` (default `fundi:access`) requires that permission
-claim. The `POST /tasks` endpoint is server-to-server (app surfaces), gated by an
-optional `FUNDI_API_TOKEN` bearer; `/health` is open.
+Fundi is internal: `/mcp` and `/tasks` are gated by **WorkOS M2M
+(`client_credentials`)**. A caller exchanges its client id/secret at
+`https://<authkit_domain>/oauth2/token` for a short-lived JWT, then calls Fundi
+with `Authorization: Bearer <jwt>`. The worker verifies that JWT **statelessly**
+against the environment JWKS — no OAuth redirect, no session KV (`m2m-auth.ts`):
+
+- signature → `https://<authkit_domain>/oauth2/jwks`
+- `iss` → `https://<authkit_domain>` (`WORKOS_AUTHKIT_DOMAIN`)
+- `aud` → our M2M app client id(s) (`WORKOS_M2M_CLIENT_ID`)
+- `org_id` → optional allowlist (`WORKOS_ALLOWED_ORG_IDS`)
+
+It **fails closed**: with no M2M config the gate denies (503). `/tasks` also
+accepts a static `FUNDI_API_TOKEN` bearer for simple server-to-server surfaces;
+`/health` and `/` are open.
+
+**Connecting a client:** Claude's hosted connector speaks OAuth, not
+`client_credentials`, so consume Fundi from **Claude Code** (or a small proxy)
+that exchanges the M2M credential for a token and sets the `Authorization`
+header. `WORKOS_AUTHKIT_DOMAIN` + `WORKOS_M2M_CLIENT_ID` are non-secret `vars`;
+the caller's client id/secret live with the caller, never in the worker.
 
 ## Why no AI when driven over MCP
 
@@ -149,20 +163,20 @@ npm install
 npx wrangler d1 create fundi-ingestion-ledger
 npx wrangler d1 migrations apply fundi-ingestion-ledger --remote -c fundi/wrangler.jsonc
 
-# 2. Create the KV namespaces (DEDUP_KV cache + OAUTH_KV for the WorkOS gate)
+# 2. Create the dedupe KV namespace
 npx wrangler kv namespace create DEDUP_KV
-npx wrangler kv namespace create OAUTH_KV
 
 # 3. Create the queues
 npx wrangler queues create fundi-ingestion-tasks
 npx wrangler queues create fundi-ingestion-tasks-dlq
 
-# 4. Secrets (never inlined). generate_description uses the Workers AI binding,
+# 4. Set the M2M gate vars (non-secret) in fundi/wrangler.jsonc:
+#      WORKOS_AUTHKIT_DOMAIN  = https://<your-env>.authkit.app
+#      WORKOS_M2M_CLIENT_ID   = client_… (the Fundi M2M application id = aud)
+#    Secrets (never inlined). generate_description uses the Workers AI binding,
 #    so there is no LLM API key to set.
-npx wrangler secret put MONGODB_URI           -c fundi/wrangler.jsonc
-npx wrangler secret put WORKOS_CLIENT_SECRET  -c fundi/wrangler.jsonc   # WorkOS gate
-npx wrangler secret put COOKIE_ENCRYPTION_KEY -c fundi/wrangler.jsonc   # openssl rand -hex 32
-npx wrangler secret put WHAT3WORDS_API_KEY    -c fundi/wrangler.jsonc   # optional
+npx wrangler secret put MONGODB_URI        -c fundi/wrangler.jsonc
+npx wrangler secret put WHAT3WORDS_API_KEY -c fundi/wrangler.jsonc   # optional
 
 # 5. Deploy
 npm run deploy:fundi
@@ -173,9 +187,8 @@ npm run deploy:fundi
 > `fundi-ingestion.nyuchi.dev` custom domain — **Zone › Workers Routes: Edit** and
 > **Zone › DNS: Edit** on the `nyuchi.dev` zone.
 >
-> WorkOS: register `https://fundi-ingestion.nyuchi.dev/callback` as a redirect URI
-> on the AuthKit app (`WORKOS_CLIENT_ID`), and grant the platform team the
-> `fundi:access` permission (or change `WORKOS_REQUIRED_PERMISSION`).
+> WorkOS: create a **M2M application** (this is the `aud`); issue a credential
+> (client id/secret) to each caller. No redirect URI is needed for M2M.
 
 ## Run a first task
 

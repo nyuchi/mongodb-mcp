@@ -46,11 +46,8 @@
     }
   ],
 
-  // OSM-id dedupe / rate-limit cache (DEDUP_KV) + WorkOS OAuth state (OAUTH_KV).
-  "kv_namespaces": [
-    { "binding": "DEDUP_KV", "id": "7e726479ef2048c5b12e51bf1cc25141" },
-    { "binding": "OAUTH_KV", "id": "0e1ae15387c240249385a4c382e6d129" }
-  ],
+  // OSM-id dedupe / rate-limit cache.
+  "kv_namespaces": [{ "binding": "DEDUP_KV", "id": "7e726479ef2048c5b12e51bf1cc25141" }],
 
   // Workers AI: generate_description routes through the shamwari AI Gateway.
   "ai": { "binding": "AI" },
@@ -63,8 +60,8 @@
   "observability": { "enabled": true },
 
   "vars": {
-    "WORKOS_CLIENT_ID": "client_01KQBBSMQTSMTBN7HEC9KQBJC0",
-    "WORKOS_REQUIRED_PERMISSION": "fundi:access",
+    "WORKOS_AUTHKIT_DOMAIN": "",
+    "WORKOS_M2M_CLIENT_ID": "",
     "FUNDI_AI_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
     "FUNDI_AI_GATEWAY": "shamwari",
     "FUNDI_BOUNDARY_BBOX": "-36,-26,38,64"
