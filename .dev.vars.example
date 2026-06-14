@@ -1,9 +1,11 @@
 # Copy to `.dev.vars` for `wrangler dev`. Never commit the real file.
-WORKOS_CLIENT_ID="client_..."
-WORKOS_CLIENT_SECRET="sk_..."
-COOKIE_ENCRYPTION_KEY="replace-with-`openssl rand -hex 32`"
-MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"
 
-# Optional: restrict to specific WorkOS organizations and/or require a permission.
+# --- WorkOS M2M gate (client_credentials) ---
+# Non-secret; can also live in wrangler.jsonc vars.
+WORKOS_AUTHKIT_DOMAIN="https://your-env.authkit.app"
+WORKOS_M2M_CLIENT_ID="client_..."   # the M2M application id (expected JWT aud)
+# Optional: restrict to specific WorkOS organizations (checked against org_id).
 # WORKOS_ALLOWED_ORG_IDS="org_abc,org_def"
-# WORKOS_REQUIRED_PERMISSION="mongodb:access"
+
+# --- MongoDB ---
+MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"

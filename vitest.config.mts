@@ -9,12 +9,10 @@ export default defineConfig({
       miniflare: {
         // Bindings used only by tests — kept separate from production secrets.
         bindings: {
-          WORKOS_CLIENT_ID: "client_test",
-          WORKOS_CLIENT_SECRET: "sk_test_workos_client_secret",
-          COOKIE_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
           MONGODB_URI: "mongodb://invalid.test:27017",
+          WORKOS_AUTHKIT_DOMAIN: "",
+          WORKOS_M2M_CLIENT_ID: "",
           WORKOS_ALLOWED_ORG_IDS: "",
-          WORKOS_REQUIRED_PERMISSION: "",
         },
         // Some transitive deps (e.g. ajv) require .json files; load them as
         // text modules so the workerd loader can resolve them.
