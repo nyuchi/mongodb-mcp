@@ -30,20 +30,28 @@ function json(body: unknown, status = 200): Response {
 }
 
 // WorkOS M2M gate. Fails closed: if the worker has no M2M config, deny.
-async function requireM2M(request: Request, env: Env): Promise<Response | null> {
-  const cfg = m2mConfig(env);
+// `audienceCsv` selects which M2M application's tokens are accepted.
+async function requireM2M(
+  request: Request,
+  env: Env,
+  audienceCsv?: string,
+): Promise<Response | null> {
+  const cfg = m2mConfig(env, audienceCsv);
   if (!cfg) return denyResponse(503, "auth not configured");
   const result = await verifyM2M(request, cfg);
   if (!result.ok) return denyResponse(result.status ?? 401, result.error ?? "unauthorized");
   return null;
 }
 
-// /tasks accepts a valid M2M token OR the static FUNDI_API_TOKEN (server-to-server
-// app surfaces). At least one mechanism must be configured.
+// /tasks is the surface fundi agents call, so it is gated by the *fundi agents*
+// M2M app (WORKOS_AGENTS_M2M_CLIENT_ID), distinct from the internal MCP app that
+// guards /mcp. Falls back to the internal MCP app until the agents app is
+// configured, and also accepts the optional static FUNDI_API_TOKEN.
 async function requireTaskAuth(request: Request, env: Env): Promise<Response | null> {
   const header = request.headers.get("authorization") ?? "";
   if (env.FUNDI_API_TOKEN && header === `Bearer ${env.FUNDI_API_TOKEN}`) return null;
-  return requireM2M(request, env);
+  const audience = env.WORKOS_AGENTS_M2M_CLIENT_ID || env.WORKOS_M2M_CLIENT_ID;
+  return requireM2M(request, env, audience);
 }
 
 async function handleSubmit(request: Request, env: Env): Promise<Response> {

@@ -25,8 +25,12 @@ interface Env {
   // AuthKit domain for the environment; the JWT issuer + JWKS base.
   // e.g. "https://your-env.authkit.app".
   WORKOS_AUTHKIT_DOMAIN?: string;
-  // Our M2M application client id(s) — the expected JWT `aud` (comma-separated).
+  // The internal MCP M2M application client id(s) — the expected `aud` on /mcp
+  // (shared by all internal MCP servers; comma-separated).
   WORKOS_M2M_CLIENT_ID?: string;
+  // The fundi agents M2M application client id(s) — the expected `aud` on /tasks
+  // (shared by all fundi agents). Falls back to WORKOS_M2M_CLIENT_ID if unset.
+  WORKOS_AGENTS_M2M_CLIENT_ID?: string;
   // Optional comma-separated WorkOS org ids allowed (checked against `org_id`).
   WORKOS_ALLOWED_ORG_IDS?: string;
 
