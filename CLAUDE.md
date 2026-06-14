@@ -5,30 +5,30 @@ Project-specific guidance for Claude Code working in this repo.
 ## What this is
 
 Authenticated remote **MCP server** for managing MongoDB. Runs on Cloudflare
-Workers, served at `https://mongodb.nyuchi.dev/mcp`. WorkOS AuthKit gates
-every request; the `/mcp` endpoint never accepts unauthenticated traffic.
+Workers, served at `https://mongodb.nyuchi.dev/mcp`. A WorkOS **M2M**
+(`client_credentials`) gate fronts `/mcp`; the endpoint never accepts
+unauthenticated traffic. Internal, platform-team-only.
 
 ## Architecture in one breath
 
-`OAuthProvider` (Cloudflare) handles the OAuth 2.1 dance → `AuthkitHandler`
-redirects to WorkOS and captures user/org/permissions into `props` →
-`MongoMcp` (a Durable Object subclass of `McpAgent`) caches one `MongoClient`
-per session and registers all tools from `src/tools.ts`.
+The worker `fetch` handler verifies a WorkOS M2M JWT bearer (`src/m2m-auth.ts`,
+stateless via the environment JWKS) → on success hands `/mcp` to `MongoMcp`
+(a Durable Object subclass of `McpAgent`) which caches one `MongoClient` per
+session and registers all tools from `src/tools.ts`.
 
 ## Where things live
 
-| Path                         | Purpose                                                          |
-| ---------------------------- | ---------------------------------------------------------------- |
-| `src/index.ts`               | Wires `OAuthProvider`, the `MongoMcp` DO, and the auth handler.  |
-| `src/tools.ts`               | All MCP tool definitions + `permissionHint` / `fail` helpers.    |
-| `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                |
-| `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.         |
-| `src/authkit-handler.ts`     | Hono app implementing `/`, `/authorize`, `/callback`.            |
-| `src/workers-oauth-utils.ts` | CSRF, state-binding cookies, approved-clients HMAC.              |
-| `src/props.ts`               | Type of `props` carried alongside each MCP session.              |
-| `test/`                      | Vitest specs (run inside `workerd` via the Cloudflare pool).     |
-| `wrangler.jsonc`             | Production worker config; KV namespace + DO binding live here.   |
-| `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here. |
+| Path                  | Purpose                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| `src/index.ts`        | M2M gate + the `MongoMcp` DO; serves `/mcp`, `/health`, `/`.     |
+| `src/m2m-auth.ts`     | WorkOS M2M JWT verification (jose: JWKS + iss/aud/org_id).       |
+| `src/tools.ts`        | All MCP tool definitions + `permissionHint` / `fail` helpers.    |
+| `src/mongo.ts`        | `buildClient(uri)` + re-exports of EJSON helpers.                |
+| `src/ejson.ts`        | Extended-JSON parse/stringify with a 256 KiB output cap.         |
+| `src/landing.ts`      | Static landing page served at `/`.                               |
+| `test/`               | Vitest specs (run inside `workerd` via the Cloudflare pool).     |
+| `wrangler.jsonc`      | Production worker config; DO binding lives here.                 |
+| `wrangler.test.jsonc` | Worker config used by the vitest pool — keep test bindings here. |
 
 ## Commands
 
@@ -76,9 +76,11 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
 
 ## Auth / permissions reference
 
-- WorkOS gate: optional. `WORKOS_ALLOWED_ORG_IDS` (comma-separated) limits
-  which orgs can authenticate; `WORKOS_REQUIRED_PERMISSION` requires that
-  permission claim in the issued JWT (granted via WorkOS roles).
+- WorkOS M2M gate: callers exchange a WorkOS client id/secret for a short-lived
+  JWT (`client_credentials`) and send it as `Authorization: Bearer`. The worker
+  verifies it against the env JWKS — `WORKOS_AUTHKIT_DOMAIN` is the issuer/JWKS
+  base, `WORKOS_M2M_CLIENT_ID` the expected `aud`, `WORKOS_ALLOWED_ORG_IDS` an
+  optional `org_id` allowlist. Fails closed when unconfigured.
 - MongoDB gate: the `MONGODB_URI` user must hold the privilege for whichever
   tool is invoked. See the role table in the README. `permissionHint()`
   detects codes 13/18/31/33 and `"not authorized on"` messages, then appends

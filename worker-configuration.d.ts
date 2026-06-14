@@ -5,23 +5,14 @@ interface Env {
   // Durable Object binding for the MongoMcp agent (one instance per MCP session).
   MCP_OBJECT: DurableObjectNamespace;
 
-  // KV used by workers-oauth-provider for codes/tokens and by our handler for OAuth state.
-  OAUTH_KV: KVNamespace;
-
-  // --- WorkOS AuthKit ---
-  // Public client id, safe to ship as a plain var.
-  WORKOS_CLIENT_ID: string;
-  // WorkOS API secret. Set with `wrangler secret put WORKOS_CLIENT_SECRET`.
-  WORKOS_CLIENT_SECRET: string;
-  // Random high-entropy string used to sign the approved-clients cookie.
-  // Set with `wrangler secret put COOKIE_ENCRYPTION_KEY`.
-  COOKIE_ENCRYPTION_KEY: string;
-  // Optional comma-separated list of WorkOS organization IDs allowed to use this MCP.
-  // Leave empty to allow any authenticated user.
+  // --- WorkOS M2M gate (client_credentials) ---
+  // AuthKit domain for the environment; the JWT issuer + JWKS base.
+  // e.g. "https://your-env.authkit.app".
+  WORKOS_AUTHKIT_DOMAIN?: string;
+  // Our M2M application client id(s) — the expected JWT `aud` (comma-separated).
+  WORKOS_M2M_CLIENT_ID?: string;
+  // Optional comma-separated WorkOS org ids allowed (checked against `org_id`).
   WORKOS_ALLOWED_ORG_IDS?: string;
-  // Optional WorkOS permission string required to use any tool (e.g. "mongodb:access").
-  // Leave empty to grant access to all authenticated users.
-  WORKOS_REQUIRED_PERMISSION?: string;
 
   // --- MongoDB ---
   // Shared MongoDB connection string. Set with `wrangler secret put MONGODB_URI`.
