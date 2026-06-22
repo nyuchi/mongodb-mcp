@@ -29,8 +29,8 @@
     "enabled": true
   },
   "vars": {
-    "WORKOS_AUTHKIT_DOMAIN": "",
-    "WORKOS_M2M_CLIENT_ID": ""
+    "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
+    "WORKOS_M2M_CLIENT_ID": "client_01KSJT4TC5GW6RHTKMHB3C9500"
   },
   "dev": {
     "port": 8788
