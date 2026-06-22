@@ -3,7 +3,7 @@
   "version": "0.1.21",
   "private": true,
   "license": "MIT",
-  "description": "Authenticated remote MCP server for managing MongoDB, running on Cloudflare Workers with WorkOS AuthKit.",
+  "description": "Authenticated remote MCP server for managing MongoDB, running on Cloudflare Workers with a WorkOS M2M gate.",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -18,11 +18,8 @@
     "test:fundi": "vitest run --root fundi"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.6.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@workos-inc/node": "^9.3.0",
     "agents": "^0.12.4",
-    "hono": "^4.12.19",
     "jose": "^6.2.3",
     "mongodb": "^7.2.0",
     "zod": "^4.4.3"
@@ -34,5 +31,8 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.6",
     "wrangler": "^4.92.0"
+  },
+  "overrides": {
+    "hono": "^4.12.26"
   }
 }
