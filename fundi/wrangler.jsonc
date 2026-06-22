@@ -60,9 +60,9 @@
   "observability": { "enabled": true },
 
   "vars": {
-    "WORKOS_AUTHKIT_DOMAIN": "",
-    "WORKOS_M2M_CLIENT_ID": "",
-    "WORKOS_AGENTS_M2M_CLIENT_ID": "",
+    "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
+    "WORKOS_M2M_CLIENT_ID": "client_01KSJT4TC5GW6RHTKMHB3C9500",
+    "WORKOS_AGENTS_M2M_CLIENT_ID": "client_01KV0ZZ4DK74YMEDYT22ARM1Y3",
     "FUNDI_AI_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
     "FUNDI_AI_GATEWAY": "shamwari",
     "FUNDI_BOUNDARY_BBOX": "-36,-26,38,64"
