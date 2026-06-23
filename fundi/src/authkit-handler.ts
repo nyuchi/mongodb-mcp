@@ -1,5 +1,4 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { type AccessToken, type AuthenticationResponse, WorkOS } from "@workos-inc/node";
 import { Hono } from "hono";
 import * as jose from "jose";
 import { landingHtml } from "./landing";
@@ -16,27 +15,44 @@ import {
   validateOAuthState,
 } from "./workers-oauth-utils";
 
+// --- PKCE helpers ---
+
+function base64UrlEncode(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
+async function buildPkce(): Promise<{ codeVerifier: string; codeChallenge: string }> {
+  const codeVerifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer);
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+  const codeChallenge = base64UrlEncode(hash);
+  return { codeVerifier, codeChallenge };
+}
+
+async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string): Promise<string> {
+  const { codeVerifier, codeChallenge } = await buildPkce();
+  await env.OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
+
+  const redirectUri = new URL("/callback", requestUrl).href;
+  const params = new URLSearchParams({
+    client_id: env.WORKOS_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    state: stateToken,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    scope: "openid email profile",
+  });
+  return `${env.WORKOS_AUTHKIT_DOMAIN}/oauth2/authorize?${params}`;
+}
+
+// ---
+
 const app = new Hono<{
   Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers };
-  Variables: { workOS: WorkOS };
 }>();
-
-function requireWorkOS(c: {
-  env: Env;
-  set: (k: "workOS", v: WorkOS) => void;
-  get: (k: "workOS") => WorkOS | undefined;
-}): WorkOS {
-  let workOS = c.get("workOS");
-  if (workOS) return workOS;
-  if (!c.env.WORKOS_API_KEY) {
-    throw new Error(
-      "WORKOS_API_KEY is not configured. Add it as a Worker secret before using auth routes.",
-    );
-  }
-  workOS = new WorkOS(c.env.WORKOS_API_KEY);
-  c.set("workOS", workOS);
-  return workOS;
-}
 
 app.get("/", (c) => {
   return c.html(landingHtml(), 200, {
@@ -71,7 +87,11 @@ app.get("/authorize", async (c) => {
   if (await isClientApproved(c.req.raw, clientId, c.env.COOKIE_ENCRYPTION_KEY)) {
     const { stateToken } = await createOAuthState(oauthReqInfo, c.env.OAUTH_KV);
     const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
-    return redirectToAuthKit(c, stateToken, { "Set-Cookie": sessionBindingCookie });
+    const location = await startWorkOSFlow(c.env, stateToken, c.req.url);
+    return new Response(null, {
+      status: 302,
+      headers: { "Set-Cookie": sessionBindingCookie, location },
+    });
   }
 
   const { token: csrfToken, setCookie } = generateCSRFProtection();
@@ -118,12 +138,12 @@ app.post("/authorize", async (c) => {
 
     const { stateToken } = await createOAuthState(state.oauthReqInfo, c.env.OAUTH_KV);
     const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
+    const location = await startWorkOSFlow(c.env, stateToken, c.req.url);
 
-    const headers = new Headers();
+    const headers = new Headers({ Location: location });
     headers.append("Set-Cookie", approvedClientCookie);
     headers.append("Set-Cookie", sessionBindingCookie);
-
-    return redirectToAuthKit(c, stateToken, Object.fromEntries(headers));
+    return new Response(null, { status: 302, headers });
   } catch (error: unknown) {
     console.error("POST /authorize error:", error);
     if (error instanceof OAuthError) return error.toResponse();
@@ -132,35 +152,27 @@ app.post("/authorize", async (c) => {
   }
 });
 
-function redirectToAuthKit(
-  c: {
-    env: Env;
-    req: { url: string };
-    set: (k: "workOS", v: WorkOS) => void;
-    get: (k: "workOS") => WorkOS | undefined;
-  },
-  stateToken: string,
-  headers: Record<string, string> = {},
-) {
-  const workOS = requireWorkOS(c);
-  return new Response(null, {
-    headers: {
-      ...headers,
-      location: workOS.userManagement.getAuthorizationUrl({
-        provider: "authkit",
-        clientId: c.env.WORKOS_CLIENT_ID,
-        redirectUri: new URL("/callback", c.req.url).href,
-        state: stateToken,
-      }),
-    },
-    status: 302,
-  });
-}
-
 app.get("/callback", async (c) => {
+  const errorParam = c.req.query("error");
+  if (errorParam) {
+    const desc = c.req.query("error_description") || "Authorization failed";
+    return c.text(`Authorization denied: ${desc}`, 400);
+  }
+
+  const stateFromQuery = new URL(c.req.url).searchParams.get("state");
+  if (!stateFromQuery) {
+    return c.text("Missing state parameter", 400);
+  }
+
+  // Retrieve and immediately delete the PKCE verifier (single-use)
+  const codeVerifier = await c.env.OAUTH_KV.get(`oauth:pkce:${stateFromQuery}`);
+  await c.env.OAUTH_KV.delete(`oauth:pkce:${stateFromQuery}`);
+  if (!codeVerifier) {
+    return c.text("Invalid or expired PKCE state", 400);
+  }
+
   let oauthReqInfo: AuthRequest;
   let clearSessionCookie: string;
-
   try {
     const result = await validateOAuthState(c.req.raw, c.env.OAUTH_KV);
     oauthReqInfo = result.oauthReqInfo;
@@ -176,29 +188,62 @@ app.get("/callback", async (c) => {
 
   const code = c.req.query("code");
   if (!code) {
-    return c.text("Missing code", 400);
+    return c.text("Missing authorization code", 400);
   }
 
-  const workOS = requireWorkOS(c);
-  let response: AuthenticationResponse;
-  try {
-    response = await workOS.userManagement.authenticateWithCode({
-      clientId: c.env.WORKOS_CLIENT_ID,
+  const redirectUri = new URL("/callback", c.req.url).href;
+  const tokenRes = await fetch(`${c.env.WORKOS_AUTHKIT_DOMAIN}/oauth2/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: c.env.WORKOS_CLIENT_ID,
       code,
-    });
-  } catch (error) {
-    console.error("Authentication error:", error);
-    return c.text("Invalid authorization code", 400);
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    console.error("WorkOS token exchange error:", await tokenRes.text());
+    return c.text("Failed to exchange authorization code", 400);
   }
 
-  const { accessToken, organizationId, refreshToken, user } = response;
-  const { permissions = [] } = jose.decodeJwt<AccessToken>(accessToken);
+  const tokens = (await tokenRes.json()) as {
+    access_token: string;
+    id_token?: string;
+    refresh_token?: string;
+  };
+
+  const accessToken = tokens.access_token;
+  const idToken = tokens.id_token ?? "";
+  const refreshToken = tokens.refresh_token ?? "";
+
+  const idClaims = idToken ? jose.decodeJwt(idToken) : {};
+  const userId = String((idClaims as { sub?: unknown }).sub ?? "");
+  if (!userId) {
+    return c.text("Could not determine user identity from token", 400);
+  }
+
+  const userEmail =
+    typeof (idClaims as { email?: unknown }).email === "string"
+      ? ((idClaims as { email: string }).email)
+      : undefined;
+  const rawGiven = (idClaims as { given_name?: unknown }).given_name;
+  const rawFamily = (idClaims as { family_name?: unknown }).family_name;
+  const userName =
+    typeof (idClaims as { name?: unknown }).name === "string"
+      ? ((idClaims as { name: string }).name)
+      : [rawGiven, rawFamily].filter((v) => typeof v === "string").join(" ") || undefined;
+
+  const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string }>(accessToken);
+  const permissions: string[] = atClaims.permissions ?? [];
+  const organizationId = atClaims.org_id;
 
   const allowedOrgs = (c.env.WORKOS_ALLOWED_ORG_IDS || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-
   if (allowedOrgs.length > 0 && (!organizationId || !allowedOrgs.includes(organizationId))) {
     return c.text("Your WorkOS organization is not authorized to use this MCP server.", 403);
   }
@@ -213,15 +258,16 @@ app.get("/callback", async (c) => {
 
   const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
     request: oauthReqInfo,
-    userId: user.id,
+    userId,
     metadata: {},
     scope: permissions,
     props: {
       accessToken,
-      organizationId,
-      permissions,
+      idToken,
       refreshToken,
-      user,
+      permissions,
+      organizationId,
+      user: { id: userId, email: userEmail, name: userName },
     } satisfies Props,
   });
 
@@ -229,7 +275,6 @@ app.get("/callback", async (c) => {
   if (clearSessionCookie) {
     headers.set("Set-Cookie", clearSessionCookie);
   }
-
   return new Response(null, { status: 302, headers });
 });
 

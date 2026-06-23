@@ -1,8 +1,7 @@
-import type { User } from "@workos-inc/node";
-
 export interface Props {
-  user: User;
+  user: { id: string; email?: string; name?: string };
   accessToken: string;
+  idToken: string;
   refreshToken: string;
   permissions: string[];
   organizationId?: string;
