@@ -17,22 +17,35 @@ interface Env {
   // OSM-id dedupe / rate-limit cache.
   DEDUP_KV?: KVNamespace;
 
+  // --- OAuth KV ---
+  // Used by workers-oauth-provider for OAuth codes/tokens and by our handler for OAuth state.
+  OAUTH_KV: KVNamespace;
+
   // --- Workers AI (generate_description) ---
   // Inference binding; description generation routes through the AI Gateway.
   AI: Ai;
 
-  // --- WorkOS M2M gate (client_credentials) ---
-  // AuthKit domain for the environment; the JWT issuer + JWKS base.
-  // e.g. "https://your-env.authkit.app".
-  WORKOS_AUTHKIT_DOMAIN?: string;
-  // The internal MCP M2M application client id(s) — the expected `aud` on /mcp
-  // (shared by all internal MCP servers; comma-separated).
-  WORKOS_M2M_CLIENT_ID?: string;
-  // The fundi agents M2M application client id(s) — the expected `aud` on /tasks
-  // (shared by all fundi agents). Falls back to WORKOS_M2M_CLIENT_ID if unset.
-  WORKOS_AGENTS_M2M_CLIENT_ID?: string;
-  // Optional comma-separated WorkOS org ids allowed (checked against `org_id`).
+  // --- WorkOS OAuth (Authorization Code + PKCE) for /mcp ---
+  // Public client id for the WorkOS "connect" OAuth app; safe to commit.
+  WORKOS_CLIENT_ID: string;
+  // WorkOS API secret. Set with `wrangler secret put WORKOS_CLIENT_SECRET -c fundi/wrangler.jsonc`.
+  WORKOS_CLIENT_SECRET: string;
+  // Random high-entropy string used to sign the approved-clients cookie.
+  // Set with `wrangler secret put COOKIE_ENCRYPTION_KEY -c fundi/wrangler.jsonc`.
+  COOKIE_ENCRYPTION_KEY: string;
+  // Optional comma-separated WorkOS org ids allowed to use this MCP.
   WORKOS_ALLOWED_ORG_IDS?: string;
+  // Optional WorkOS permission string required to use any tool.
+  WORKOS_REQUIRED_PERMISSION?: string;
+
+  // --- WorkOS M2M gate (client_credentials) for /tasks ---
+  // AuthKit domain for the environment; the JWT issuer + JWKS base.
+  WORKOS_AUTHKIT_DOMAIN?: string;
+  // The fundi agents M2M application client id(s) — the expected `aud` on /tasks.
+  // Falls back to WORKOS_M2M_CLIENT_ID if unset.
+  WORKOS_AGENTS_M2M_CLIENT_ID?: string;
+  // Fallback M2M client id if WORKOS_AGENTS_M2M_CLIENT_ID is not set.
+  WORKOS_M2M_CLIENT_ID?: string;
 
   // --- Secrets (set via `wrangler secret put`, never inlined) ---
   MONGODB_URI: string;
@@ -41,14 +54,8 @@ interface Env {
   FUNDI_API_TOKEN?: string;
 
   // --- Vars ---
-  // Workers AI model for generate_description (registry can override). Through an
-  // AI Gateway the id is provider-prefixed, e.g. "workers-ai/@cf/moonshotai/kimi-k2.6".
   FUNDI_AI_MODEL?: string;
-  // AI Gateway id descriptions route through (default "shamwari").
   FUNDI_AI_GATEWAY?: string;
-  // Boundary guard bbox "s,w,n,e". Defaults to Africa; widen to lift to global.
   FUNDI_BOUNDARY_BBOX?: string;
-  // Dev-only: allow the bundled African-capitals fallback when places.placesGeo
-  // has no capital data. Never "true" in production.
   FUNDI_ALLOW_FALLBACK_CAPITALS?: string;
 }

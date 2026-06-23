@@ -47,7 +47,11 @@
   ],
 
   // OSM-id dedupe / rate-limit cache.
-  "kv_namespaces": [{ "binding": "DEDUP_KV", "id": "7e726479ef2048c5b12e51bf1cc25141" }],
+  "kv_namespaces": [
+    { "binding": "DEDUP_KV", "id": "7e726479ef2048c5b12e51bf1cc25141" },
+    // KV used by workers-oauth-provider for OAuth codes/tokens and state.
+    { "binding": "OAUTH_KV", "id": "7b3cb31f73744a73a6f4aef9a0aff61c" }
+  ],
 
   // Workers AI: generate_description routes through the shamwari AI Gateway.
   "ai": { "binding": "AI" },
@@ -70,8 +74,9 @@
 
   "vars": {
     "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
-    "WORKOS_M2M_CLIENT_ID": "client_01KSJT4TC5GW6RHTKMHB3C9500",
     "WORKOS_AGENTS_M2M_CLIENT_ID": "client_01KV0ZZ4DK74YMEDYT22ARM1Y3",
+    // WorkOS OAuth "connect" app — same app as mongodb-mcp (both MCPs share one app).
+    "WORKOS_CLIENT_ID": "client_01KQBBSMQTSMTBN7HEC9KQBJC0",
     "FUNDI_AI_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
     "FUNDI_AI_GATEWAY": "shamwari",
     "FUNDI_BOUNDARY_BBOX": "-36,-26,38,64"

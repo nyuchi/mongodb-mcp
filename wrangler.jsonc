@@ -19,6 +19,12 @@
       }
     ]
   },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "5444b8773bc14eb78738c74f1d3c28ea"
+    }
+  ],
   "routes": [
     {
       "pattern": "mongodb.nyuchi.dev",
@@ -35,8 +41,8 @@
     "snappy": "./src/native-stub.js"
   },
   "vars": {
-    "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
-    "WORKOS_M2M_CLIENT_ID": "client_01KSJT4TC5GW6RHTKMHB3C9500"
+    "WORKOS_CLIENT_ID": "client_01KQBBSMQTSMTBN7HEC9KQBJC0",
+    "WORKOS_REQUIRED_PERMISSION": "mongodb:access"
   },
   "dev": {
     "port": 8788
