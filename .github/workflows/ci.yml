@@ -31,3 +31,10 @@ jobs:
       - run: npm test
 
       - run: npx wrangler deploy --dry-run --outdir=.wrangler/dryrun
+
+      # Fundi worker (fundi/) — its own type-check, tests, and bundle.
+      - run: npm run type-check:fundi
+
+      - run: npm run test:fundi
+
+      - run: npx wrangler deploy -c fundi/wrangler.jsonc --dry-run --outdir=.wrangler/dryrun-fundi

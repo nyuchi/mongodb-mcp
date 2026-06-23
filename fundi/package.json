@@ -1,9 +1,9 @@
 {
-  "name": "mongodb-mcp",
-  "version": "0.1.21",
+  "name": "fundi-ingestion",
+  "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Authenticated remote MCP server for managing MongoDB, running on Cloudflare Workers with a WorkOS M2M gate.",
+  "description": "Fundi — agentic place-ingestion Worker for the Mukoko platform.",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -11,11 +11,7 @@
     "cf-typegen": "wrangler types",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "dev:fundi": "wrangler dev -c fundi/wrangler.jsonc",
-    "deploy:fundi": "wrangler deploy -c fundi/wrangler.jsonc",
-    "type-check:fundi": "tsc --noEmit -p fundi/tsconfig.json",
-    "test:fundi": "vitest run --root fundi"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -25,7 +21,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.6",
     "@cloudflare/workers-types": "^4.20260518.1",
     "@types/node": "^25.9.0",
     "typescript": "^6.0.3",
