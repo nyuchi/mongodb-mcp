@@ -86,13 +86,14 @@ null beats a polluted string. See `src/skills/description.ts` (`isHedge`).
 
 ## MCP surface (`/mcp`)
 
-| Tool               | Purpose                                                          |
-| ------------------ | ---------------------------------------------------------------- |
-| `seed_region`      | Enqueue a seed task (what search-miss / app empty-state call).   |
-| `seed_admin_bulk`  | Run a generator (e.g. all African capitals, 20 km) → many tasks. |
-| `task_status`      | Ledger lookup by task id.                                        |
-| `compute_pluscode` | Direct Plus Code computation (testing).                          |
-| `overpass_lookup`  | Direct read-only Overpass query (testing).                       |
+| Tool                 | Purpose                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| `seed_region`        | Enqueue a seed task (what search-miss / app empty-state call).                        |
+| `seed_admin_bulk`    | Run a generator (e.g. all African capitals, 20 km) → many tasks.                      |
+| `task_status`        | Ledger lookup by task id.                                                             |
+| `list_recent_places` | Read back the tier-0 places Fundi created (recent / nearest) + their linked entities. |
+| `compute_pluscode`   | Direct Plus Code computation (testing).                                               |
+| `overpass_lookup`    | Direct read-only Overpass query (testing).                                            |
 
 The `POST /tasks` HTTP endpoint and the MCP `seed_region` tool are two faces of
 the same enqueue path (`src/enqueue.ts`).
