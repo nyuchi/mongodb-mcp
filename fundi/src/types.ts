@@ -39,11 +39,23 @@ export type TaskSource = z.infer<typeof sourceSchema>;
 
 export type TaskStatus = "queued" | "processing" | "done" | "failed" | "partial";
 
+// One record Fundi wrote for a task. The ids are logged so "what this task
+// built" is deterministic — not a fragile global "most recent" query.
+export interface CreatedRecord {
+  placeId: string;
+  entityId: string | null; // null for natural / Bundu-Commons-owned places
+  osmId: string;
+  name: string;
+  placeCreated: boolean;
+  entityCreated: boolean;
+}
+
 export interface TaskResult {
   placesCreated: number;
   entitiesCreated: number;
   skipped: number;
   notes?: string;
+  records?: CreatedRecord[];
 }
 
 export interface SeedTask {

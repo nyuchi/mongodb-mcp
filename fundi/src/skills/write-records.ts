@@ -30,6 +30,8 @@ export interface EnrichedRecord {
 }
 
 export interface WriteOutcome {
+  placeId: string;
+  entityId: string | null; // null for natural / Bundu-Commons-owned places
   placeCreated: boolean;
   entityCreated: boolean;
 }
@@ -168,5 +170,10 @@ export async function writeRecords(
     { upsert: true },
   );
 
-  return { placeCreated: placeRes.upsertedCount > 0, entityCreated };
+  return {
+    placeId,
+    entityId: rec.classification.isBusiness ? ownerEntityId : null,
+    placeCreated: placeRes.upsertedCount > 0,
+    entityCreated,
+  };
 }

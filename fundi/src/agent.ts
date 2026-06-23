@@ -15,7 +15,7 @@ import { radiusBbox, tileBbox } from "./skills/tile-region";
 import { type EnrichedRecord, writeRecords } from "./skills/write-records";
 import { enrichWikidata, type WikidataDeps } from "./skills/wikidata";
 import { resolveWhat3Words, type What3WordsConfig } from "./skills/what3words";
-import type { SeedTask, TaskResult } from "./types";
+import type { CreatedRecord, SeedTask, TaskResult } from "./types";
 
 export interface AgentDeps {
   client: MongoClient;
@@ -139,6 +139,7 @@ export async function runTask(task: SeedTask, deps: AgentDeps): Promise<TaskResu
   let placesCreated = 0;
   let entitiesCreated = 0;
   let skipped = 0;
+  const records: CreatedRecord[] = [];
 
   for (const feature of seen.values()) {
     const classification = classify(feature);
@@ -177,13 +178,21 @@ export async function runTask(task: SeedTask, deps: AgentDeps): Promise<TaskResu
       if (outcome.placeCreated) placesCreated++;
       if (outcome.entityCreated) entitiesCreated++;
       if (!outcome.placeCreated) skipped++;
+      records.push({
+        placeId: outcome.placeId,
+        entityId: outcome.entityId,
+        osmId: osmKey(feature),
+        name: classification.name,
+        placeCreated: outcome.placeCreated,
+        entityCreated: outcome.entityCreated,
+      });
     } catch (e) {
       log(task.taskId, "write.error", { osm: osmKey(feature), error: String(e) });
       skipped++;
     }
   }
 
-  const result: TaskResult = { placesCreated, entitiesCreated, skipped };
+  const result: TaskResult = { placesCreated, entitiesCreated, skipped, records };
   log(task.taskId, "task.done", { ...result });
   return result;
 }
