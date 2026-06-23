@@ -164,12 +164,18 @@ endpoint would be resolved from the provider registry like any other source.
 
 ## Deploy
 
+Fundi is a **self-contained** subproject: it has its own `package.json`, so all
+commands run from inside `fundi/`. This also lets the Cloudflare Workers Build
+deploy Fundi independently of `mongodb-mcp` (Build → **Root directory: `fundi`**,
+default deploy command `npx wrangler deploy` — no `-c` needed).
+
 ```sh
+cd fundi
 npm install
 
-# 1. Create the D1 ledger (its id is written into fundi/wrangler.jsonc)
+# 1. Create the D1 ledger (paste its id into wrangler.jsonc)
 npx wrangler d1 create fundi-ingestion-ledger
-npx wrangler d1 migrations apply fundi-ingestion-ledger --remote -c fundi/wrangler.jsonc
+npx wrangler d1 migrations apply fundi-ingestion-ledger --remote
 
 # 2. Create the dedupe KV namespace
 npx wrangler kv namespace create DEDUP_KV
@@ -178,16 +184,17 @@ npx wrangler kv namespace create DEDUP_KV
 npx wrangler queues create fundi-ingestion-tasks
 npx wrangler queues create fundi-ingestion-tasks-dlq
 
-# 4. Set the M2M gate vars (non-secret) in fundi/wrangler.jsonc:
-#      WORKOS_AUTHKIT_DOMAIN  = https://<your-env>.authkit.app
-#      WORKOS_M2M_CLIENT_ID   = client_… (the Fundi M2M application id = aud)
+# 4. Set the M2M gate vars (non-secret) in wrangler.jsonc:
+#      WORKOS_AUTHKIT_DOMAIN        = https://<your-env>.authkit.app
+#      WORKOS_M2M_CLIENT_ID         = client_… (internal MCP app = aud for /mcp)
+#      WORKOS_AGENTS_M2M_CLIENT_ID  = client_… (fundi agents app = aud for /tasks)
 #    Secrets (never inlined). generate_description uses the Workers AI binding,
 #    so there is no LLM API key to set.
-npx wrangler secret put MONGODB_URI        -c fundi/wrangler.jsonc
-npx wrangler secret put WHAT3WORDS_API_KEY -c fundi/wrangler.jsonc   # optional
+npx wrangler secret put MONGODB_URI
+npx wrangler secret put WHAT3WORDS_API_KEY   # optional
 
 # 5. Deploy
-npm run deploy:fundi
+npm run deploy
 ```
 
 > The deploying Cloudflare API token needs **Workers Scripts: Edit**, **D1: Edit**,
@@ -195,20 +202,24 @@ npm run deploy:fundi
 > `fundi-ingestion.nyuchi.dev` custom domain — **Zone › Workers Routes: Edit** and
 > **Zone › DNS: Edit** on the `nyuchi.dev` zone.
 >
-> WorkOS: create a **M2M application** (this is the `aud`); issue a credential
-> (client id/secret) to each caller. No redirect URI is needed for M2M.
+> WorkOS: create the **M2M application(s)** whose client ids are the `aud` above;
+> issue a credential (client id/secret) to each caller. No redirect URI for M2M.
+>
+> From the repo root you can also use the convenience scripts
+> `npm run deploy:fundi` / `type-check:fundi` / `test:fundi` (they target
+> `fundi/` via `-c` / `--root`).
 
 ## Run a first task
 
-Local dev:
+Local dev (from `fundi/`):
 
 ```sh
-cp fundi/.dev.vars.example fundi/.dev.vars   # fill in MONGODB_URI etc.
-npm run dev:fundi                            # http://localhost:8789
+cp .dev.vars.example .dev.vars   # fill in MONGODB_URI etc.
+npm run dev                      # http://localhost:8789
 
 curl -s -X POST http://localhost:8789/tasks \
   -H 'content-type: application/json' \
-  --data @fundi/examples/point_radius.harare.json
+  --data examples/point_radius.harare.json
 ```
 
 Bulk (ops):
