@@ -28,8 +28,8 @@ interface Env {
   // --- WorkOS OAuth (Authorization Code + PKCE) for /mcp ---
   // Public client id for the WorkOS "connect" OAuth app; safe to commit.
   WORKOS_CLIENT_ID: string;
-  // WorkOS API secret. Set with `wrangler secret put WORKOS_CLIENT_SECRET -c fundi/wrangler.jsonc`.
-  WORKOS_CLIENT_SECRET: string;
+  // WorkOS API secret. Set with `wrangler secret put WORKOS_API_KEY -c fundi/wrangler.jsonc`.
+  WORKOS_API_KEY: string;
   // Random high-entropy string used to sign the approved-clients cookie.
   // Set with `wrangler secret put COOKIE_ENCRYPTION_KEY -c fundi/wrangler.jsonc`.
   COOKIE_ENCRYPTION_KEY: string;

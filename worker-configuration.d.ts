@@ -11,8 +11,8 @@ interface Env {
   // --- WorkOS OAuth (Authorization Code + PKCE) ---
   // Public client id for the WorkOS "connect" OAuth app; safe to commit.
   WORKOS_CLIENT_ID: string;
-  // WorkOS API secret. Set with `wrangler secret put WORKOS_CLIENT_SECRET`.
-  WORKOS_CLIENT_SECRET: string;
+  // WorkOS API secret. Set with `wrangler secret put WORKOS_API_KEY`.
+  WORKOS_API_KEY: string;
   // Random high-entropy string used to sign the approved-clients cookie.
   // Set with `wrangler secret put COOKIE_ENCRYPTION_KEY`.
   COOKIE_ENCRYPTION_KEY: string;

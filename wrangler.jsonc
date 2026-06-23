@@ -41,7 +41,7 @@
     "snappy": "./src/native-stub.js"
   },
   "vars": {
-    "WORKOS_CLIENT_ID": "client_01KQBBSMQTSMTBN7HEC9KQBJC0",
+    "WORKOS_CLIENT_ID": "client_01KV0ZZ4DK74YMEDYT22ARM1Y3",
     "WORKOS_REQUIRED_PERMISSION": "mongodb:access"
   },
   "dev": {

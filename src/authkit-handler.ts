@@ -28,12 +28,12 @@ function requireWorkOS(c: {
 }): WorkOS {
   let workOS = c.get("workOS");
   if (workOS) return workOS;
-  if (!c.env.WORKOS_CLIENT_SECRET) {
+  if (!c.env.WORKOS_API_KEY) {
     throw new Error(
-      "WORKOS_CLIENT_SECRET is not configured. Add it as a Worker secret before using auth routes.",
+      "WORKOS_API_KEY is not configured. Add it as a Worker secret before using auth routes.",
     );
   }
-  workOS = new WorkOS(c.env.WORKOS_CLIENT_SECRET);
+  workOS = new WorkOS(c.env.WORKOS_API_KEY);
   c.set("workOS", workOS);
   return workOS;
 }
