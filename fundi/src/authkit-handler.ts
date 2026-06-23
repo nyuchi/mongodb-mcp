@@ -25,7 +25,9 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
 }
 
 async function buildPkce(): Promise<{ codeVerifier: string; codeChallenge: string }> {
-  const codeVerifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer);
+  const codeVerifier = base64UrlEncode(
+    crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer,
+  );
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
   const codeChallenge = base64UrlEncode(hash);
   return { codeVerifier, codeChallenge };
@@ -227,13 +229,13 @@ app.get("/callback", async (c) => {
 
   const userEmail =
     typeof (idClaims as { email?: unknown }).email === "string"
-      ? ((idClaims as { email: string }).email)
+      ? (idClaims as { email: string }).email
       : undefined;
   const rawGiven = (idClaims as { given_name?: unknown }).given_name;
   const rawFamily = (idClaims as { family_name?: unknown }).family_name;
   const userName =
     typeof (idClaims as { name?: unknown }).name === "string"
-      ? ((idClaims as { name: string }).name)
+      ? (idClaims as { name: string }).name
       : [rawGiven, rawFamily].filter((v) => typeof v === "string").join(" ") || undefined;
 
   const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string }>(accessToken);
