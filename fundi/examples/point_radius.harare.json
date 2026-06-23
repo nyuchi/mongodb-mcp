@@ -1,0 +1,13 @@
+{
+  "region": {
+    "kind": "point_radius",
+    "center": [31.0492, -17.8292],
+    "radiusMeters": 5000
+  },
+  "categories": ["accommodation", "food", "attraction"],
+  "source": {
+    "kind": "ops_mcp",
+    "surface": "first-run",
+    "query": "Harare central"
+  }
+}

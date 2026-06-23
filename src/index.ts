@@ -1,13 +1,12 @@
-import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import type { MongoClient } from "mongodb";
-import { AuthkitHandler } from "./authkit-handler";
+import { landingHtml } from "./landing";
+import { denyResponse, m2mConfig, verifyM2M } from "./m2m-auth";
 import { buildClient } from "./mongo";
-import type { Props } from "./props";
 import { registerMongoTools } from "./tools";
 
-export class MongoMcp extends McpAgent<Env, unknown, Props> {
+export class MongoMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
   server = new McpServer({
     name: "mongodb-mcp",
     title: "MongoDB MCP",
@@ -62,11 +61,45 @@ export class MongoMcp extends McpAgent<Env, unknown, Props> {
   }
 }
 
-export default new OAuthProvider({
-  apiRoute: "/mcp",
-  apiHandler: MongoMcp.serve("/mcp") as never,
-  defaultHandler: AuthkitHandler as never,
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/token",
-  clientRegistrationEndpoint: "/register",
-});
+// The /mcp surface is gated by WorkOS M2M (client_credentials): callers present a
+// short-lived WorkOS JWT as `Authorization: Bearer`, verified statelessly against
+// the environment JWKS (see m2m-auth.ts). Internal, platform-team-only. Fails
+// closed when unconfigured.
+const mcpHandler = MongoMcp.serve("/mcp");
+
+async function requireM2M(request: Request, env: Env): Promise<Response | null> {
+  const cfg = m2mConfig(env);
+  if (!cfg) return denyResponse(503, "auth not configured");
+  const result = await verifyM2M(request, cfg);
+  if (!result.ok) return denyResponse(result.status ?? 401, result.error ?? "unauthorized");
+  return null;
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+      const denied = await requireM2M(request, env);
+      if (denied) return denied;
+      return mcpHandler.fetch(request, env, ctx);
+    }
+    if (url.pathname === "/health") {
+      return new Response(JSON.stringify({ worker: "mongodb-mcp", status: "ok" }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.pathname === "/") {
+      return new Response(landingHtml(), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+    return new Response(JSON.stringify({ error: "not found" }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  },
+};
