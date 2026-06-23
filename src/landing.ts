@@ -192,7 +192,7 @@ export function landingHtml(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MongoDB MCP — Nyuchi</title>
-<meta name="description" content="Authenticated remote Model Context Protocol server for MongoDB, running on Cloudflare Workers with WorkOS AuthKit.">
+<meta name="description" content="Authenticated remote Model Context Protocol server for MongoDB, running on Cloudflare Workers with WorkOS M2M auth.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="${ICON_HREF}" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -216,9 +216,9 @@ export function landingHtml(): string {
       <h1>An authenticated MCP for your MongoDB clusters.</h1>
       <p class="lead">
         Point Claude Desktop, Cursor, or any Model Context Protocol client at
-        <code>https://mongodb.nyuchi.dev/mcp</code>. Sign in with WorkOS,
-        and the worker brokers every query — reads, writes, indexes, admin
-        commands — against the cluster you have access to.
+        <code>https://mongodb.nyuchi.dev/mcp</code> with a WorkOS M2M
+        access token, and the worker brokers every query — reads, writes,
+        indexes, admin commands — against the cluster you have access to.
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#connect">Connect a client</a>
@@ -227,8 +227,14 @@ export function landingHtml(): string {
 
       <h2 id="connect">Connect</h2>
       <p style="color: var(--color-fg-muted); font-size: 0.9375rem;">
-        First call opens a browser to WorkOS AuthKit; once you approve, the
-        client caches the token and every tool call runs under your identity.
+        This is an internal service. Every client must send a WorkOS
+        <strong>M2M</strong> access token as an
+        <code>Authorization: Bearer &lt;token&gt;</code> header — mint it from
+        your WorkOS client id/secret via
+        <code>POST https://&lt;authkit-domain&gt;/oauth2/token</code>
+        (<code>grant_type=client_credentials</code>). Tokens are short-lived, so
+        a small wrapper that refreshes and injects the header is the usual setup.
+        The snippets below show the URLs; add the header per your client.
       </p>
       <div class="tabs">
         <details open>
@@ -381,11 +387,13 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
 
       <h2>How auth works</h2>
       <p>
-        The <code>/mcp</code> endpoint is behind <a href="https://workos.com/authkit">WorkOS AuthKit</a>,
-        wired up through Cloudflare's <code>workers-oauth-provider</code>. There
-        is no public surface — every request must complete the OAuth 2.1 dance
-        (including dynamic client registration) before a single MongoDB query
-        runs. Optional org-id and permission gates can pin access further.
+        The <code>/mcp</code> endpoint is gated by <a href="https://workos.com/authkit">WorkOS</a>
+        <strong>M2M</strong> (<code>client_credentials</code>). There is no
+        public surface — every request must carry a valid short-lived WorkOS
+        JWT, which the worker verifies statelessly against the environment JWKS
+        (issuer, audience, and an optional org-id allowlist) before a single
+        MongoDB query runs. No browser sign-in, no session state; it fails
+        closed when unconfigured.
       </p>
     </div>
   </main>
