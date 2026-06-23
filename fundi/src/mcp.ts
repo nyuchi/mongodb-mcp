@@ -5,9 +5,12 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
+import { EJSON } from "bson";
+import type { MongoClient } from "mongodb";
 import { z } from "zod";
 import { submitBulkIntent, submitSeedTask } from "./enqueue";
 import { getTaskStatus } from "./ledger";
+import { BUNDU_COMMONS_ID, buildClient, COLLECTION, DB } from "./mongo";
 import { encodePlusCode } from "./pluscode";
 import { overpassLookup } from "./skills/overpass";
 import { bulkIntentSchema, categoriesSchema, regionSchema, sourceSchema } from "./types";
@@ -16,6 +19,13 @@ type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean
 
 function ok(value: unknown): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+}
+
+// Mongo documents carry BSON types (Date, Double); EJSON renders them cleanly.
+function okEjson(value: unknown): ToolResult {
+  return {
+    content: [{ type: "text", text: EJSON.stringify(value, undefined, 2, { relaxed: true }) }],
+  };
 }
 
 function fail(err: unknown): ToolResult {
@@ -32,6 +42,18 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
       "Agentic ingestion worker. Turns regions into clean, sovereign, tier-0 place and entity records.",
     websiteUrl: "https://fundi.nyuchi.dev",
   });
+
+  // Cached read client for the inspection tools. Connect only inside a handler.
+  private mongo?: MongoClient;
+  private async getMongo(): Promise<MongoClient> {
+    if (this.mongo) return this.mongo;
+    const uri = this.env.MONGODB_URI;
+    if (!uri) throw new Error("MONGODB_URI is not configured on the worker");
+    const client = buildClient(uri);
+    await client.connect();
+    this.mongo = client;
+    return client;
+  }
 
   async init() {
     this.server.tool(
@@ -78,6 +100,92 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
         try {
           const row = await getTaskStatus(this.env, taskId);
           return row ? ok(row) : fail(new Error(`task not found: ${taskId}`));
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    );
+
+    this.server.tool(
+      "list_recent_places",
+      "Show the tier-0 places Fundi has created (most recent first, or nearest to a point), each with its linked unverified entity. Reads places.places + entity.entities.",
+      {
+        limit: z.number().int().min(1).max(50).optional(),
+        near: z.tuple([z.number(), z.number()]).optional().describe("[lng, lat] — return nearest"),
+        radiusMeters: z.number().positive().max(50_000).optional(),
+      },
+      async ({ limit, near, radiusMeters }) => {
+        try {
+          const client = await this.getMongo();
+          const places = client.db(DB.places).collection(COLLECTION.places);
+          const projection = {
+            _id: 1,
+            name: 1,
+            slug: 1,
+            placeType: 1,
+            geo: 1,
+            plusCode: 1,
+            what3words: 1,
+            "content.description": 1,
+            ownerEntityId: 1,
+            "sourceProvenance.legacyId": 1,
+            "bundu.verificationTier": 1,
+            createdAt: 1,
+          };
+          const filter: Record<string, unknown> = { "sourceProvenance.dataOrigin": "osm" };
+
+          let cursor;
+          if (near) {
+            filter.geo = {
+              $near: {
+                $geometry: { type: "Point", coordinates: near },
+                $maxDistance: radiusMeters ?? 5000,
+              },
+            };
+            cursor = places.find(filter, { projection, limit: limit ?? 10 });
+          } else {
+            cursor = places.find(filter, {
+              projection,
+              limit: limit ?? 10,
+              sort: { createdAt: -1 },
+            });
+          }
+          const placeDocs = await cursor.toArray();
+
+          // Attach the linked entity for businesses (skip Bundu Commons custodian).
+          const ownerIds = [
+            ...new Set(
+              placeDocs
+                .map((p) => p.ownerEntityId as string)
+                .filter((id) => id && id !== BUNDU_COMMONS_ID),
+            ),
+          ];
+          const entityById = new Map<string, unknown>();
+          if (ownerIds.length) {
+            const entities = await client
+              .db(DB.entity)
+              .collection(COLLECTION.entities)
+              .find(
+                { _id: { $in: ownerIds as never } },
+                {
+                  projection: {
+                    _id: 1,
+                    name: 1,
+                    schemaOrgType: 1,
+                    primaryPlaceId: 1,
+                    "bundu.verificationTier": 1,
+                  },
+                },
+              )
+              .toArray();
+            for (const e of entities) entityById.set(String(e._id), e);
+          }
+
+          const results = placeDocs.map((p) => ({
+            ...p,
+            entity: entityById.get(p.ownerEntityId as string) ?? null,
+          }));
+          return okEjson({ count: results.length, places: results });
         } catch (e) {
           return fail(e);
         }
