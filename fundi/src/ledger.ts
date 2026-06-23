@@ -2,7 +2,7 @@
 // status, dedup, result summaries). Per-task *execution* state lives in the
 // FundiAgent's own embedded store; D1 is the queryable record across all tasks.
 
-import type { SeedTask, TaskResult, TaskStatus } from "./types";
+import type { CreatedRecord, SeedTask, TaskResult, TaskStatus } from "./types";
 
 export interface LedgerEnv {
   DB: D1Database;
@@ -70,7 +70,7 @@ export async function markResult(
   error?: string,
 ): Promise<void> {
   await env.DB.prepare(
-    `UPDATE tasks SET status=?, places_created=?, entities_created=?, skipped=?, notes=?, error=?, finished_at=? WHERE task_id=?`,
+    `UPDATE tasks SET status=?, places_created=?, entities_created=?, skipped=?, notes=?, records=?, error=?, finished_at=? WHERE task_id=?`,
   )
     .bind(
       status,
@@ -78,6 +78,7 @@ export async function markResult(
       result?.entitiesCreated ?? null,
       result?.skipped ?? null,
       result?.notes ?? null,
+      result?.records ? JSON.stringify(result.records) : null,
       error ?? null,
       new Date().toISOString(),
       taskId,
@@ -96,11 +97,12 @@ export interface TaskStatusRow {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  records: CreatedRecord[];
 }
 
 export async function getTaskStatus(env: LedgerEnv, taskId: string): Promise<TaskStatusRow | null> {
   const row = await env.DB.prepare(
-    `SELECT task_id, status, places_created, entities_created, skipped, notes, error, created_at, started_at, finished_at
+    `SELECT task_id, status, places_created, entities_created, skipped, notes, records, error, created_at, started_at, finished_at
      FROM tasks WHERE task_id=?`,
   )
     .bind(taskId)
@@ -111,6 +113,7 @@ export async function getTaskStatus(env: LedgerEnv, taskId: string): Promise<Tas
       entities_created: number | null;
       skipped: number | null;
       notes: string | null;
+      records: string | null;
       error: string | null;
       created_at: string;
       started_at: string | null;
@@ -128,6 +131,7 @@ export async function getTaskStatus(env: LedgerEnv, taskId: string): Promise<Tas
     createdAt: row.created_at,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
+    records: row.records ? (JSON.parse(row.records) as CreatedRecord[]) : [],
   };
 }
 

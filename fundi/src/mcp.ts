@@ -33,6 +33,31 @@ function fail(err: unknown): ToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
+const PLACE_PROJECTION = {
+  _id: 1,
+  name: 1,
+  slug: 1,
+  placeType: 1,
+  geo: 1,
+  plusCode: 1,
+  what3words: 1,
+  "content.description": 1,
+  ownerEntityId: 1,
+  "sourceProvenance.legacyId": 1,
+  "bundu.verificationTier": 1,
+  createdAt: 1,
+} as const;
+
+const ENTITY_PROJECTION = {
+  _id: 1,
+  name: 1,
+  slug: 1,
+  schemaOrgType: 1,
+  primaryPlaceId: 1,
+  "bundu.verificationTier": 1,
+  "sourceProvenance.legacyId": 1,
+} as const;
+
 export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
   server = new McpServer({
     name: "fundi",
@@ -107,6 +132,53 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
     );
 
     this.server.tool(
+      "task_records",
+      "Display exactly what a task built — the places (+ linked entities) it created, fetched by their logged ids. Deterministic per task, so concurrent tasks/users never interfere (unlike recency).",
+      { taskId: z.string().min(1) },
+      async ({ taskId }) => {
+        try {
+          const row = await getTaskStatus(this.env, taskId);
+          if (!row) return fail(new Error(`task not found: ${taskId}`));
+          const placeIds = row.records.map((r) => r.placeId);
+          const entityIds = row.records
+            .map((r) => r.entityId)
+            .filter((id): id is string => Boolean(id));
+
+          const client = await this.getMongo();
+          const places = placeIds.length
+            ? await client
+                .db(DB.places)
+                .collection(COLLECTION.places)
+                .find({ _id: { $in: placeIds as never } }, { projection: PLACE_PROJECTION })
+                .toArray()
+            : [];
+          const entities = entityIds.length
+            ? await client
+                .db(DB.entity)
+                .collection(COLLECTION.entities)
+                .find({ _id: { $in: entityIds as never } }, { projection: ENTITY_PROJECTION })
+                .toArray()
+            : [];
+
+          return okEjson({
+            taskId,
+            status: row.status,
+            summary: {
+              placesCreated: row.placesCreated,
+              entitiesCreated: row.entitiesCreated,
+              skipped: row.skipped,
+              logged: row.records.length,
+            },
+            places,
+            entities,
+          });
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    );
+
+    this.server.tool(
       "list_recent_places",
       "Show the tier-0 places Fundi has created (most recent first, or nearest to a point), each with its linked unverified entity. Reads places.places + entity.entities.",
       {
@@ -118,20 +190,6 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
         try {
           const client = await this.getMongo();
           const places = client.db(DB.places).collection(COLLECTION.places);
-          const projection = {
-            _id: 1,
-            name: 1,
-            slug: 1,
-            placeType: 1,
-            geo: 1,
-            plusCode: 1,
-            what3words: 1,
-            "content.description": 1,
-            ownerEntityId: 1,
-            "sourceProvenance.legacyId": 1,
-            "bundu.verificationTier": 1,
-            createdAt: 1,
-          };
           const filter: Record<string, unknown> = { "sourceProvenance.dataOrigin": "osm" };
 
           let cursor;
@@ -142,10 +200,10 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
                 $maxDistance: radiusMeters ?? 5000,
               },
             };
-            cursor = places.find(filter, { projection, limit: limit ?? 10 });
+            cursor = places.find(filter, { projection: PLACE_PROJECTION, limit: limit ?? 10 });
           } else {
             cursor = places.find(filter, {
-              projection,
+              projection: PLACE_PROJECTION,
               limit: limit ?? 10,
               sort: { createdAt: -1 },
             });
@@ -165,18 +223,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
             const entities = await client
               .db(DB.entity)
               .collection(COLLECTION.entities)
-              .find(
-                { _id: { $in: ownerIds as never } },
-                {
-                  projection: {
-                    _id: 1,
-                    name: 1,
-                    schemaOrgType: 1,
-                    primaryPlaceId: 1,
-                    "bundu.verificationTier": 1,
-                  },
-                },
-              )
+              .find({ _id: { $in: ownerIds as never } }, { projection: ENTITY_PROJECTION })
               .toArray();
             for (const e of entities) entityById.set(String(e._id), e);
           }
