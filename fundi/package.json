@@ -17,7 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "agents": "^0.12.4",
     "jose": "^6.2.3",
-    "mongodb": "^7.2.0",
+    "mongodb": "7.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -28,6 +28,7 @@
     "wrangler": "^4.92.0"
   },
   "overrides": {
-    "hono": "^4.12.26"
+    "hono": "^4.12.26",
+    "bson": "7.2.0"
   }
 }
