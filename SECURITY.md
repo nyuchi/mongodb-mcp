@@ -12,10 +12,10 @@ patch.
 If you believe you've found a security vulnerability — particularly anything
 that could
 
-- bypass the WorkOS AuthKit OAuth flow,
-- escalate a user without the `mongodb:access` permission into the MCP tool
-  surface,
-- leak `MONGODB_URI`, `WORKOS_CLIENT_SECRET`, or `COOKIE_ENCRYPTION_KEY`,
+- bypass the WorkOS M2M (`client_credentials`) gate on `/mcp`,
+- get a token outside the configured audience or `org_id` allowlist accepted
+  into the MCP tool surface,
+- leak `MONGODB_URI`,
 - or trigger arbitrary writes / drops on connected MongoDB clusters via the
   MCP tools —
 
@@ -39,15 +39,14 @@ In scope:
 
 - the deployed worker at `https://mongodb.nyuchi.dev/*`,
 - the source in this repository,
-- the OAuth + RBAC enforcement in `src/auth.ts`, `src/oauth-utils.ts`, and the
-  Durable Object permission checks in `src/index.ts`.
+- the WorkOS M2M JWT verification in `src/m2m-auth.ts` and the gate that
+  enforces it in `src/index.ts`.
 
 Out of scope:
 
-- vulnerabilities in upstream dependencies (`mongodb`, `@workos-inc/node`,
-  `@cloudflare/workers-oauth-provider`, `@modelcontextprotocol/sdk`, `hono`,
-  `jose`, `zod`) — please report those upstream and we'll roll the patched
-  release;
+- vulnerabilities in upstream dependencies (`mongodb`, `agents`,
+  `@modelcontextprotocol/sdk`, `jose`, `zod`) — please report those upstream
+  and we'll roll the patched release;
 - social engineering of Nyuchi staff or contractors;
 - denial-of-service against Cloudflare or WorkOS infrastructure;
 - findings from automated scanners without a working proof of concept.
