@@ -15,13 +15,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "agents": "^0.12.4",
+    "agents": "^0.16.2",
     "jose": "^6.2.3",
     "mongodb": "7.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260518.1",
+    "@cloudflare/workers-types": "^4.20260623.1",
     "@types/node": "^25.9.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6",

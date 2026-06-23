@@ -59,6 +59,15 @@
 
   "observability": { "enabled": true },
 
+  // Keep the mongodb driver's optional native add-ons (.node binaries) out of
+  // the esbuild bundle; the driver runs fine without them. See src/native-stub.js.
+  "alias": {
+    "@mongodb-js/zstd": "./src/native-stub.js",
+    "kerberos": "./src/native-stub.js",
+    "mongodb-client-encryption": "./src/native-stub.js",
+    "snappy": "./src/native-stub.js"
+  },
+
   "vars": {
     "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
     "WORKOS_M2M_CLIENT_ID": "client_01KSJT4TC5GW6RHTKMHB3C9500",
