@@ -13,6 +13,8 @@ interface Env {
   WORKOS_CLIENT_ID: string;
   // WorkOS AuthKit domain; used as the OAuth issuer and JWKS base.
   WORKOS_AUTHKIT_DOMAIN: string;
+  // Org to pin the OAuth flow to, so the access token carries RBAC permissions.
+  WORKOS_ORGANIZATION_ID?: string;
   // Random high-entropy string used to sign the approved-clients cookie.
   // Set with `wrangler secret put COOKIE_ENCRYPTION_KEY`.
   COOKIE_ENCRYPTION_KEY: string;

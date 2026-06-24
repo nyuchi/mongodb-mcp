@@ -47,6 +47,11 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
     code_challenge_method: "S256",
     scope: "openid email profile",
   });
+  // WorkOS only emits the RBAC `permissions` claim for organization-scoped
+  // sessions, so pin the flow to our org when configured.
+  if (env.WORKOS_ORGANIZATION_ID) {
+    params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
+  }
   return `${env.WORKOS_AUTHKIT_DOMAIN}/oauth2/authorize?${params}`;
 }
 

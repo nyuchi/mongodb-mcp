@@ -47,6 +47,11 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
     code_challenge_method: "S256",
     scope: "openid email profile",
   });
+  // WorkOS only emits the RBAC `permissions` claim for organization-scoped
+  // sessions, so pin the flow to our org when configured.
+  if (env.WORKOS_ORGANIZATION_ID) {
+    params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
+  }
   return `${env.WORKOS_AUTHKIT_DOMAIN}/oauth2/authorize?${params}`;
 }
 
@@ -237,11 +242,6 @@ app.get("/callback", async (c) => {
   const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string }>(accessToken);
   const permissions: string[] = atClaims.permissions ?? [];
   const organizationId = atClaims.org_id;
-
-  console.log(
-    "DEBUG token claims:",
-    JSON.stringify({ access: atClaims, idKeys: Object.keys(idClaims) }),
-  );
 
   const allowedOrgs = (c.env.WORKOS_ALLOWED_ORG_IDS || "")
     .split(",")

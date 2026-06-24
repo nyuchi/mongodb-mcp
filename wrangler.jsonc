@@ -43,6 +43,7 @@
   "vars": {
     "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
     "WORKOS_CLIENT_ID": "client_01KVTX0V2K1VM3PSC0DJ9VZWTV",
+    "WORKOS_ORGANIZATION_ID": "org_01KRDAB894DJF5V38PT5617TV1",
     "WORKOS_REQUIRED_PERMISSION": "mongodb:access"
   },
   "dev": {

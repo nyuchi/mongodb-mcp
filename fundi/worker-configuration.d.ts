@@ -28,6 +28,8 @@ interface Env {
   // --- WorkOS OAuth (Authorization Code + PKCE) for /mcp ---
   // Public client id for the WorkOS "connect" OAuth app; safe to commit.
   WORKOS_CLIENT_ID: string;
+  // Org to pin the OAuth flow to, so the access token carries RBAC permissions.
+  WORKOS_ORGANIZATION_ID?: string;
   // Random high-entropy string used to sign the approved-clients cookie.
   // Set with `wrangler secret put COOKIE_ENCRYPTION_KEY -c fundi/wrangler.jsonc`.
   COOKIE_ENCRYPTION_KEY: string;
