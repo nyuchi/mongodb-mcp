@@ -11,7 +11,7 @@ export class MongoMcp extends McpAgent<Env, unknown, Props> {
   server = new McpServer({
     name: "mongodb-mcp",
     title: "MongoDB MCP",
-    version: "0.1.0",
+    version: "0.1.21",
     description:
       "Authenticated remote Model Context Protocol server for managing MongoDB clusters.",
     websiteUrl: "https://mongodb.nyuchi.dev",
