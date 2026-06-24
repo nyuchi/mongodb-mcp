@@ -6,7 +6,7 @@
 const FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans:wght@400;500;600;700&family=Noto+Serif:wght@600;700&display=swap";
 
-const ICON_HREF = "https://www.nyuchi.com/icon-light.png";
+const ICON_HREF = "/icon.svg";
 
 const STYLES = `
   :root {

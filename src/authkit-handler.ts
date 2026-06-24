@@ -1,6 +1,7 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import * as jose from "jose";
+import { iconSvg } from "./icon";
 import { landingHtml } from "./landing";
 import type { Props } from "./props";
 import {
@@ -72,18 +73,17 @@ app.get("/", (c) => {
   });
 });
 
-const ICON_REDIRECT = "https://www.nyuchi.com/icon-light.png";
-function redirectToIcon() {
-  return new Response(null, {
-    status: 301,
+function serveIcon() {
+  return new Response(iconSvg, {
     headers: {
-      Location: ICON_REDIRECT,
+      "Content-Type": "image/svg+xml; charset=utf-8",
       "Cache-Control": "public, max-age=86400",
     },
   });
 }
-app.get("/favicon.ico", () => redirectToIcon());
-app.get("/icon.png", () => redirectToIcon());
+app.get("/favicon.ico", () => serveIcon());
+app.get("/icon.svg", () => serveIcon());
+app.get("/icon.png", () => serveIcon());
 
 app.get("/authorize", async (c) => {
   const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
@@ -110,6 +110,7 @@ app.get("/authorize", async (c) => {
     server: {
       description:
         "Authenticated MCP for managing MongoDB. WorkOS verifies your identity before the MCP client gets access.",
+      logo: new URL("/icon.svg", c.req.url).href,
       name: "MongoDB MCP",
     },
     setCookie,

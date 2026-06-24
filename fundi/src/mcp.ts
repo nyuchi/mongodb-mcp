@@ -66,6 +66,13 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
     description:
       "Agentic ingestion worker. Turns regions into clean, sovereign, tier-0 place and entity records.",
     websiteUrl: "https://fundi.nyuchi.dev",
+    icons: [
+      {
+        src: "https://fundi-ingestion.nyuchi.dev/icon.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["any"],
+      },
+    ],
   });
 
   // Cached read client for the inspection tools. Connect only inside a handler.
