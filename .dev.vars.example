@@ -1,11 +1,16 @@
 # Copy to `.dev.vars` for `wrangler dev`. Never commit the real file.
 
-# --- WorkOS M2M gate (client_credentials) ---
-# Non-secret; can also live in wrangler.jsonc vars.
-WORKOS_AUTHKIT_DOMAIN="https://your-env.authkit.app"
-WORKOS_M2M_CLIENT_ID="client_..."   # the M2M application id (expected JWT aud)
-# Optional: restrict to specific WorkOS organizations (checked against org_id).
-# WORKOS_ALLOWED_ORG_IDS="org_abc,org_def"
+# --- WorkOS OAuth gate (Authorization Code + PKCE) ---
+# Non-secret values can also live in wrangler.jsonc `vars`.
+WORKOS_AUTHKIT_DOMAIN="https://your-env.authkit.app"  # issuer + OAuth base
+WORKOS_CLIENT_ID="client_..."                          # Connect app client id
+# Pin the flow to one organization and gate on it.
+WORKOS_ORGANIZATION_ID="org_..."
+WORKOS_ALLOWED_ORG_IDS="org_..."                       # comma-separated allowlist
+# Permission requested as an OAuth scope; granted only if the user's role holds it.
+WORKOS_REQUIRED_PERMISSION="mongodb:access"
 
-# --- MongoDB ---
+# --- Secrets ---
+# Encrypts the client-approval cookie (any long random string; `openssl rand -hex 32`).
+COOKIE_ENCRYPTION_KEY="..."
 MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"
