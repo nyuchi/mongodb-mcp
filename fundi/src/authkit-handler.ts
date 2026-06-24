@@ -38,6 +38,12 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   await env.OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
 
   const redirectUri = new URL("/callback", requestUrl).href;
+  // The Connect app exposes permissions as OAuth scopes. Request the required
+  // permission so WorkOS grants it (in the token's `scope` claim) only when the
+  // user's org role actually holds it.
+  const scopes = ["openid", "email", "profile"];
+  const requiredPermission = (env.WORKOS_REQUIRED_PERMISSION || "").trim();
+  if (requiredPermission) scopes.push(requiredPermission);
   const params = new URLSearchParams({
     client_id: env.WORKOS_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -45,10 +51,9 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
     state: stateToken,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
-    scope: "openid email profile",
+    scope: scopes.join(" "),
   });
-  // WorkOS only emits the RBAC `permissions` claim for organization-scoped
-  // sessions, so pin the flow to our org when configured.
+  // Pin the flow to our org so the token is organization-scoped.
   if (env.WORKOS_ORGANIZATION_ID) {
     params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
   }
@@ -243,8 +248,15 @@ app.get("/callback", async (c) => {
       ? (idClaims as { name: string }).name
       : [rawGiven, rawFamily].filter((v) => typeof v === "string").join(" ") || undefined;
 
-  const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string }>(accessToken);
-  const permissions: string[] = atClaims.permissions ?? [];
+  const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string; scope?: string }>(
+    accessToken,
+  );
+  // The Connect app grants permissions as OAuth scopes, so the granted
+  // permission lands in the space-delimited `scope` claim; also accept a
+  // `permissions` array if present.
+  const grantedScopes =
+    typeof atClaims.scope === "string" ? atClaims.scope.split(" ").filter(Boolean) : [];
+  const permissions: string[] = [...(atClaims.permissions ?? []), ...grantedScopes];
   const organizationId = atClaims.org_id;
 
   const allowedOrgs = (c.env.WORKOS_ALLOWED_ORG_IDS || "")
