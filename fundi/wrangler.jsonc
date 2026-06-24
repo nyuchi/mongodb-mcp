@@ -76,7 +76,7 @@
     "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
     "WORKOS_AGENTS_M2M_CLIENT_ID": "client_01KV0ZZ4DK74YMEDYT22ARM1Y3",
     // WorkOS OAuth "connect" app — same app as mongodb-mcp (both MCPs share one app).
-    "WORKOS_CLIENT_ID": "client_01KV0ZZ4DK74YMEDYT22ARM1Y3",
+    "WORKOS_CLIENT_ID": "client_01KVTX0V2K1VM3PSC0DJ9VZWTV",
     "WORKOS_REQUIRED_PERMISSION": "mongodb:access",
     "FUNDI_AI_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
     "FUNDI_AI_GATEWAY": "shamwari",
