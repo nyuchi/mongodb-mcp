@@ -17,5 +17,11 @@
         "name": "MCP_OBJECT"
       }
     ]
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "test-oauth-kv"
+    }
+  ]
 }

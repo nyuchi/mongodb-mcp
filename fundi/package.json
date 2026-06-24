@@ -14,8 +14,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.8.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "agents": "^0.16.2",
+    "hono": "^4.12.26",
     "jose": "^6.2.3",
     "mongodb": "7.2.0",
     "zod": "^4.4.3"
