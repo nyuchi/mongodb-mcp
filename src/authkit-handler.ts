@@ -238,6 +238,11 @@ app.get("/callback", async (c) => {
   const permissions: string[] = atClaims.permissions ?? [];
   const organizationId = atClaims.org_id;
 
+  console.log(
+    "DEBUG token claims:",
+    JSON.stringify({ access: atClaims, idKeys: Object.keys(idClaims) }),
+  );
+
   const allowedOrgs = (c.env.WORKOS_ALLOWED_ORG_IDS || "")
     .split(",")
     .map((s) => s.trim())
