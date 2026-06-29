@@ -18,6 +18,7 @@ export interface ProviderConfig {
 
 const DEFAULT_ENDPOINTS: Record<string, string> = {
   openstreetmap: "https://overpass-api.de/api/interpreter",
+  nominatim: "https://nominatim.openstreetmap.org",
   wikidata: "https://www.wikidata.org/wiki/Special:EntityData",
   what3words: "https://api.what3words.com/v3/convert-to-3wa",
   anthropic: "https://api.anthropic.com/v1/messages",
