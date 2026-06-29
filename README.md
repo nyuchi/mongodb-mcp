@@ -43,19 +43,25 @@ MCP client ──OAuth──> Cloudflare Worker ──> WorkOS AuthKit (sign in)
 
 ## Available tools
 
-Discovery: `listDatabases`, `listCollections`, `dbStats`, `collStats`, `ping`.
+Discovery: `listDatabases`, `listCollections`, `dbStats`, `collStats`, `ping`,
+`serverStatus`, `hostInfo`.
 Reads: `find`, `findOne`, `count`, `aggregate`, `distinct`,
 `estimatedDocumentCount`, `explain`.
 Writes: `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`,
 `deleteMany` (refuses empty filter without `confirm: true`), `replaceOne`,
 `findOneAndUpdate`, `findOneAndReplace`, `findOneAndDelete`, `bulkWrite`.
 Admin: `createCollection`, `dropCollection` (requires `confirm: true`),
-`renameCollection`, `createView`, `createIndex`, `listIndexes`, `dropIndex`,
-`runCommand`.
+`dropDatabase` (requires `confirm: true`), `renameCollection`, `createView`,
+`collMod`, `validate`, `createIndex`, `listIndexes`, `dropIndex`,
+`indexStats`, `runCommand`.
+Monitoring: `currentOp`, `killOp`, `getProfilingStatus`, `setProfilingLevel`,
+`getProfilingData`.
 Atlas Search: `listSearchIndexes`, `createSearchIndex`, `updateSearchIndex`,
 `dropSearchIndex`.
 User management: `createUser`, `updateUser`, `dropUser` (requires
-`confirm: true`), `grantRolesToUser`, `revokeRolesFromUser`.
+`confirm: true`), `grantRolesToUser`, `revokeRolesFromUser`, `listUsers`.
+Role management: `listRoles`, `createRole`, `dropRole` (requires
+`confirm: true`).
 
 All filter/document/pipeline arguments accept **Extended JSON** so you can pass
 `{"_id": {"$oid": "..."}}` or `{"createdAt": {"$gte": {"$date": "2025-01-01"}}}`

@@ -164,6 +164,25 @@ describe("registerMongoTools", () => {
       "dropUser",
       "grantRolesToUser",
       "revokeRolesFromUser",
+      "listUsers",
+      // role management
+      "listRoles",
+      "createRole",
+      "dropRole",
+      // database admin
+      "dropDatabase",
+      "collMod",
+      "validate",
+      // monitoring
+      "serverStatus",
+      "hostInfo",
+      "currentOp",
+      "killOp",
+      // profiling
+      "getProfilingStatus",
+      "setProfilingLevel",
+      "getProfilingData",
+      "indexStats",
     ];
     for (const name of expected) {
       expect(tools.has(name), `expected tool '${name}' to be registered`).toBe(true);
