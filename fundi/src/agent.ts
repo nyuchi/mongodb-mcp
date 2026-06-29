@@ -11,6 +11,7 @@ import { ProviderRegistry } from "./registry";
 import { classify, type OsmFeature } from "./skills/classify";
 import { type AiConfig, generateDescription } from "./skills/description";
 import { type OverpassDeps, overpassLookup, osmKey } from "./skills/overpass";
+import { type NominatimDeps, resolveHierarchy } from "./skills/resolve-hierarchy";
 import { radiusBbox, tileBbox } from "./skills/tile-region";
 import { type EnrichedRecord, writeRecords } from "./skills/write-records";
 import { enrichWikidata, type WikidataDeps } from "./skills/wikidata";
@@ -23,6 +24,7 @@ export interface AgentDeps {
   entityDb: Db;
   registry: ProviderRegistry;
   overpass: OverpassDeps;
+  nominatim: NominatimDeps | null;
   ai: AiConfig | null;
   what3words: What3WordsConfig | null;
   wikidata: WikidataDeps | null;
@@ -41,6 +43,7 @@ export async function buildDeps(client: MongoClient, env: Env): Promise<AgentDep
   const registry = new ProviderRegistry(integrationsDb, strEnv);
 
   const overpassEndpoint = await registry.endpoint("openstreetmap");
+  const nominatimEndpoint = await registry.endpoint("nominatim");
   const wikidataEndpoint = await registry.endpoint("wikidata");
 
   const w3wEndpoint = await registry.endpoint("what3words");
@@ -60,6 +63,7 @@ export async function buildDeps(client: MongoClient, env: Env): Promise<AgentDep
     entityDb: client.db(DB.entity),
     registry,
     overpass: { endpoint: overpassEndpoint },
+    nominatim: nominatimEndpoint ? { endpoint: nominatimEndpoint } : null,
     ai: env.AI ? { binding: env.AI, model: aiModel, gateway: aiGateway } : null,
     what3words: w3wKey ? { endpoint: w3wEndpoint, apiKey: w3wKey } : null,
     wikidata: wikidataEndpoint ? { endpoint: wikidataEndpoint } : null,
@@ -161,6 +165,20 @@ export async function runTask(task: SeedTask, deps: AgentDeps): Promise<TaskResu
         ? existing
         : await generateDescription(deps.ai, feature, classification.name);
 
+    let hierarchy = { containedInPlaceId, countryId: null as string | null, provinceId: null as string | null };
+    if (deps.nominatim) {
+      try {
+        const resolved = await resolveHierarchy(deps.nominatim, deps.placesDb, feature.lat, feature.lon);
+        hierarchy = {
+          containedInPlaceId: resolved.containedInPlaceId ?? containedInPlaceId,
+          countryId: resolved.countryId,
+          provinceId: resolved.provinceId,
+        };
+      } catch (e) {
+        log(task.taskId, "hierarchy.error", { osm: osmKey(feature), error: String(e) });
+      }
+    }
+
     const rec: EnrichedRecord = {
       feature,
       classification,
@@ -170,7 +188,7 @@ export async function runTask(task: SeedTask, deps: AgentDeps): Promise<TaskResu
       wikidata,
       description,
       dataConfidence: dataConfidence(feature),
-      hierarchy: { containedInPlaceId, countryId: null, provinceId: null },
+      hierarchy,
     };
 
     try {
