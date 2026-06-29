@@ -60,22 +60,24 @@ foundation the sibling MCP uses:
 The agent frame is real so new skills register without rewriting the consumer.
 Today's skills:
 
-| Skill                       | What it does                                                                |
-| --------------------------- | --------------------------------------------------------------------------- |
-| `tile_region`               | Region → bounded Overpass tiles (continental coverage ≠ one call).          |
-| `overpass_lookup`           | OSM/Overpass features per tile/category (`node+way`, `out tags center`).    |
-| `compute_pluscode`          | Open Location Code from lat/lng, locally. Always runs.                      |
-| `resolve_what3words`        | lat/lng → 3-word address (best-effort, write-time only).                    |
-| `enrich_wikidata`           | `wikidata` tag → QID labels / `sameAs` / identifiers (best-effort).         |
-| `generate_description`      | Workers AI (Kimi via the shamwari AI Gateway) **with the v10 hedge guard**. |
-| `classify_place_and_entity` | OSM tags → business vs natural; `placeType[]` + `schemaOrgType`.            |
-| `write_records`             | Idempotent upsert to `places.places` (+ linked `entity.entities`).          |
+| Skill                       | What it does                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tile_region`               | Region → bounded Overpass tiles (continental coverage ≠ one call).                                                                         |
+| `overpass_lookup`           | OSM/Overpass features per tile/category (`node+way`, `out tags center`).                                                                   |
+| `compute_pluscode`          | Open Location Code from lat/lng, locally. Always runs.                                                                                     |
+| `resolve_what3words`        | lat/lng → 3-word address (best-effort, write-time only).                                                                                   |
+| `enrich_wikidata`           | `wikidata` tag → QID labels / `sameAs` / identifiers (best-effort).                                                                        |
+| `resolve_hierarchy`         | lat/lng → Nominatim reverse-geocode → match `placesGeo` for `countryId` / `provinceId` / `containedInPlaceId` (best-effort; null on miss). |
+| `generate_description`      | Workers AI (Kimi via the shamwari AI Gateway) **with the v10 hedge guard**.                                                                |
+| `classify_place_and_entity` | OSM tags → business vs natural; `placeType[]` + `schemaOrgType`.                                                                           |
+| `write_records`             | Idempotent upsert to `places.places` (+ linked `entity.entities`).                                                                         |
 
 Per task: tile → for each tile `overpass_lookup` → **dedupe on OSM id across
 tiles** (keep the richest element — the fix for the duplicate "Rhino Safari Camp"
 rows) → for each unique feature: classify → `compute_pluscode` +
-`resolve_what3words` + `enrich_wikidata` + (`generate_description` if no usable
-one) → `write_records` → tally → update ledger.
+`resolve_what3words` + `enrich_wikidata` + `resolve_hierarchy` +
+(`generate_description` if no usable one) → `write_records` → tally → update
+ledger.
 
 ### The description guard (§6, do not regress)
 
@@ -86,15 +88,17 @@ null beats a polluted string. See `src/skills/description.ts` (`isHedge`).
 
 ## MCP surface (`/mcp`)
 
-| Tool                 | Purpose                                                                                                                                  |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `seed_region`        | Enqueue a seed task (what search-miss / app empty-state call).                                                                           |
-| `seed_admin_bulk`    | Run a generator (e.g. all African capitals, 20 km) → many tasks.                                                                         |
-| `task_status`        | Ledger lookup by task id (status, counts, the logged record ids).                                                                        |
-| `task_records`       | Display exactly what a task built — places (+ entities) fetched by their **logged ids**; deterministic per task, safe under concurrency. |
-| `list_recent_places` | Browse recent / nearest tier-0 places (convenience; not task-scoped).                                                                    |
-| `compute_pluscode`   | Direct Plus Code computation (testing).                                                                                                  |
-| `overpass_lookup`    | Direct read-only Overpass query (testing).                                                                                               |
+| Tool                 | Purpose                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seed_region`        | Enqueue a seed task (what search-miss / app empty-state call).                                                                                       |
+| `seed_admin_bulk`    | Run a generator (e.g. all African capitals, 20 km) → many tasks.                                                                                     |
+| `task_status`        | Ledger lookup by task id (status, counts, the logged record ids).                                                                                    |
+| `task_records`       | Display exactly what a task built — places (+ entities) fetched by their **logged ids**; deterministic per task, safe under concurrency.             |
+| `list_recent_places` | Browse recent / nearest tier-0 places (convenience; not task-scoped).                                                                                |
+| `compute_pluscode`   | Direct Plus Code computation (testing).                                                                                                              |
+| `overpass_lookup`    | Direct read-only Overpass query (testing).                                                                                                           |
+| `resolve_hierarchy`  | Preview the `placesGeo` hierarchy (`countryId` / `provinceId` / `containedInPlaceId`) a coordinate would resolve to (Nominatim + `placesGeo` match). |
+| `list_geo_areas`     | Inspect seeded `placesGeo` admin areas by type (counts, or list under a parent) — shows what containment data exists.                                |
 
 The `POST /tasks` HTTP endpoint and the MCP `seed_region` tool are two faces of
 the same enqueue path (`src/enqueue.ts`).
