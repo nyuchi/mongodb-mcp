@@ -63,6 +63,30 @@ const jsonArray = z
   .union([z.string(), z.array(z.unknown())])
   .describe("Array of documents (JSON / Extended JSON).");
 
+// MCP tool annotations: advisory hints clients use to render and guard tools.
+// `readOnlyHint` tools never mutate; `destructiveHint` tools may overwrite or
+// remove data; `idempotentHint` tools are safe to retry with identical args.
+// `openWorldHint` stays false — every tool acts only on the connected MongoDB
+// cluster, a closed system (runCommand is the one open-ended exception).
+const READ = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+const ADD = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+const MUTATE = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
 export function registerMongoTools(server: McpServer, getClient: () => Promise<MongoClient>) {
   // ---------- discovery ----------
 
@@ -70,6 +94,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "listDatabases",
     "List databases on the cluster with their size on disk.",
     {},
+    { ...READ, title: "List databases" },
     async () => {
       try {
         const client = await getClient();
@@ -85,6 +110,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "listCollections",
     "List collections in a database.",
     { ...dbArg },
+    { ...READ, title: "List collections" },
     async ({ db }) => {
       try {
         const client = await getClient();
@@ -96,20 +122,27 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool("dbStats", "Return db.stats() for a database.", { ...dbArg }, async ({ db }) => {
-    try {
-      const client = await getClient();
-      const stats = await client.db(db).stats();
-      return ok(stats);
-    } catch (e) {
-      return fail(e);
-    }
-  });
+  server.tool(
+    "dbStats",
+    "Return db.stats() for a database.",
+    { ...dbArg },
+    { ...READ, title: "Database stats" },
+    async ({ db }) => {
+      try {
+        const client = await getClient();
+        const stats = await client.db(db).stats();
+        return ok(stats);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 
   server.tool(
     "collStats",
     "Return collStats for a collection (via $collStats aggregation).",
     { ...collArg },
+    { ...READ, title: "Collection stats" },
     async ({ db, collection }) => {
       try {
         const client = await getClient();
@@ -138,6 +171,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       limit: z.number().int().min(1).max(1000).default(50),
       skip: z.number().int().min(0).default(0),
     },
+    { ...READ, title: "Find documents" },
     async ({ db, collection, filter, projection, sort, limit, skip }) => {
       try {
         const client = await getClient();
@@ -166,6 +200,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       filter: jsonDoc.optional(),
       projection: jsonDoc.optional(),
     },
+    { ...READ, title: "Find one document" },
     async ({ db, collection, filter, projection }) => {
       try {
         const client = await getClient();
@@ -186,6 +221,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "count",
     "Count documents matching a filter (countDocuments).",
     { ...collArg, filter: jsonDoc.optional() },
+    { ...READ, title: "Count documents" },
     async ({ db, collection, filter }) => {
       try {
         const client = await getClient();
@@ -202,12 +238,13 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   server.tool(
     "aggregate",
-    "Run an aggregation pipeline.",
+    "Run an aggregation pipeline. Note: $out / $merge stages write to a collection.",
     {
       ...collArg,
       pipeline: jsonArray,
       limit: z.number().int().min(1).max(1000).default(100),
     },
+    { ...ADD, title: "Run aggregation" },
     async ({ db, collection, pipeline, limit }) => {
       try {
         const client = await getClient();
@@ -231,6 +268,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "insertOne",
     "Insert a single document.",
     { ...collArg, document: jsonDoc },
+    { ...ADD, title: "Insert document" },
     async ({ db, collection, document }) => {
       try {
         const client = await getClient();
@@ -249,6 +287,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "insertMany",
     "Insert multiple documents.",
     { ...collArg, documents: jsonArray, ordered: z.boolean().default(true) },
+    { ...ADD, title: "Insert documents" },
     async ({ db, collection, documents, ordered }) => {
       try {
         const client = await getClient();
@@ -271,6 +310,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       update: jsonDoc.describe("Update document or pipeline. Use operators like $set."),
       upsert: z.boolean().default(false),
     },
+    { ...MUTATE, title: "Update document" },
     async ({ db, collection, filter, update, upsert }) => {
       try {
         const client = await getClient();
@@ -296,6 +336,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       update: jsonDoc,
       upsert: z.boolean().default(false),
     },
+    { ...MUTATE, title: "Update documents" },
     async ({ db, collection, filter, update, upsert }) => {
       try {
         const client = await getClient();
@@ -316,6 +357,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "deleteOne",
     "Delete a single document matching the filter.",
     { ...collArg, filter: jsonDoc },
+    { ...MUTATE, title: "Delete document" },
     async ({ db, collection, filter }) => {
       try {
         const client = await getClient();
@@ -341,6 +383,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
         .default(false)
         .describe("Must be true when filter is empty / matches all documents."),
     },
+    { ...MUTATE, title: "Delete documents" },
     async ({ db, collection, filter, confirm }) => {
       try {
         const parsed = parseExtendedJson<Document>(filter);
@@ -365,6 +408,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "createCollection",
     "Create a new collection.",
     { ...collArg, options: jsonDoc.optional() },
+    { ...ADD, title: "Create collection" },
     async ({ db, collection, options }) => {
       try {
         const client = await getClient();
@@ -382,6 +426,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "dropCollection",
     "Drop a collection. Requires confirm: true.",
     { ...collArg, confirm: z.literal(true) },
+    { ...MUTATE, title: "Drop collection" },
     async ({ db, collection }) => {
       try {
         const client = await getClient();
@@ -401,6 +446,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       target: z.string().min(1).describe("New collection name."),
       dropTarget: z.boolean().default(false),
     },
+    { ...MUTATE, title: "Rename collection" },
     async ({ db, collection, target, dropTarget }) => {
       try {
         const client = await getClient();
@@ -420,6 +466,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       keys: jsonDoc.describe('Index keys, e.g. {"email": 1}'),
       options: jsonDoc.optional(),
     },
+    { ...ADD, idempotentHint: true, title: "Create index" },
     async ({ db, collection, keys, options }) => {
       try {
         const client = await getClient();
@@ -441,6 +488,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "listIndexes",
     "List indexes on a collection.",
     { ...collArg },
+    { ...READ, title: "List indexes" },
     async ({ db, collection }) => {
       try {
         const client = await getClient();
@@ -456,6 +504,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "dropIndex",
     "Drop an index by name.",
     { ...collArg, indexName: z.string().min(1) },
+    { ...MUTATE, title: "Drop index" },
     async ({ db, collection, indexName }) => {
       try {
         const client = await getClient();
@@ -471,6 +520,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "runCommand",
     "Run an arbitrary database command. Use sparingly.",
     { ...dbArg, command: jsonDoc },
+    { ...MUTATE, openWorldHint: true, title: "Run database command" },
     async ({ db, command }) => {
       try {
         const client = await getClient();
@@ -482,7 +532,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool("ping", "Ping the cluster.", {}, async () => {
+  server.tool("ping", "Ping the cluster.", {}, { ...READ, title: "Ping cluster" }, async () => {
     try {
       const client = await getClient();
       const result = await client.db("admin").command({ ping: 1 });
@@ -502,6 +552,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       field: z.string().min(1).describe("Field name to compute distinct values for."),
       filter: jsonDoc.optional(),
     },
+    { ...READ, title: "Distinct values" },
     async ({ db, collection, field, filter }) => {
       try {
         const client = await getClient();
@@ -520,6 +571,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "estimatedDocumentCount",
     "Fast collection-cardinality estimate from collection metadata (no filter).",
     { ...collArg },
+    { ...READ, title: "Estimated document count" },
     async ({ db, collection }) => {
       try {
         const client = await getClient();
@@ -543,6 +595,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
         .enum(["queryPlanner", "executionStats", "allPlansExecution"])
         .default("queryPlanner"),
     },
+    { ...READ, title: "Explain query plan" },
     async ({ db, command, verbosity }) => {
       try {
         const client = await getClient();
@@ -567,6 +620,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       replacement: jsonDoc,
       upsert: z.boolean().default(false),
     },
+    { ...MUTATE, title: "Replace document" },
     async ({ db, collection, filter, replacement, upsert }) => {
       try {
         const client = await getClient();
@@ -597,6 +651,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       upsert: z.boolean().default(false),
       returnDocument: z.enum(["before", "after"]).default("after"),
     },
+    { ...MUTATE, title: "Find and update" },
     async ({ db, collection, filter, update, projection, sort, upsert, returnDocument }) => {
       try {
         const client = await getClient();
@@ -633,6 +688,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       upsert: z.boolean().default(false),
       returnDocument: z.enum(["before", "after"]).default("after"),
     },
+    { ...MUTATE, title: "Find and replace" },
     async ({ db, collection, filter, replacement, projection, sort, upsert, returnDocument }) => {
       try {
         const client = await getClient();
@@ -666,6 +722,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       projection: jsonDoc.optional(),
       sort: jsonDoc.optional(),
     },
+    { ...MUTATE, title: "Find and delete" },
     async ({ db, collection, filter, projection, sort }) => {
       try {
         const client = await getClient();
@@ -694,6 +751,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       ),
       ordered: z.boolean().default(true),
     },
+    { ...MUTATE, title: "Bulk write" },
     async ({ db, collection, operations, ordered }) => {
       try {
         const client = await getClient();
@@ -721,6 +779,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       viewOn: z.string().min(1).describe("Source collection the view reads from."),
       pipeline: jsonArray.describe("Aggregation pipeline that defines the view."),
     },
+    { ...ADD, title: "Create view" },
     async ({ db, view, viewOn, pipeline }) => {
       try {
         const stages = parseExtendedJson<Document[]>(pipeline);
@@ -738,6 +797,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "listSearchIndexes",
     "List Atlas Search indexes on a collection.",
     { ...collArg, name: z.string().optional().describe("Filter to a single index name.") },
+    { ...READ, title: "List search indexes" },
     async ({ db, collection, name }) => {
       try {
         const client = await getClient();
@@ -760,6 +820,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       definition: jsonDoc.describe("Search index definition (mappings, analyzers, etc.)."),
       type: z.enum(["search", "vectorSearch"]).default("search"),
     },
+    { ...ADD, title: "Create search index" },
     async ({ db, collection, name, definition, type }) => {
       try {
         const client = await getClient();
@@ -786,6 +847,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       name: z.string().min(1),
       definition: jsonDoc,
     },
+    { ...MUTATE, title: "Update search index" },
     async ({ db, collection, name, definition }) => {
       try {
         const client = await getClient();
@@ -804,6 +866,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "dropSearchIndex",
     "Drop an Atlas Search index by name.",
     { ...collArg, name: z.string().min(1) },
+    { ...MUTATE, title: "Drop search index" },
     async ({ db, collection, name }) => {
       try {
         const client = await getClient();
@@ -835,6 +898,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       roles: roleArg,
       customData: jsonDoc.optional(),
     },
+    { ...ADD, title: "Create user" },
     async ({ db, user, pwd, roles, customData }) => {
       try {
         const client = await getClient();
@@ -861,6 +925,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       roles: roleArg.optional(),
       customData: jsonDoc.optional(),
     },
+    { ...MUTATE, title: "Update user" },
     async ({ db, user, pwd, roles, customData }) => {
       try {
         const client = await getClient();
@@ -880,6 +945,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "dropUser",
     "Drop a database user. Requires confirm: true.",
     { ...dbArg, user: z.string().min(1), confirm: z.literal(true) },
+    { ...MUTATE, title: "Drop user" },
     async ({ db, user }) => {
       try {
         const client = await getClient();
@@ -895,6 +961,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "grantRolesToUser",
     "Grant roles to an existing user.",
     { ...dbArg, user: z.string().min(1), roles: roleArg },
+    { ...ADD, title: "Grant roles to user" },
     async ({ db, user, roles }) => {
       try {
         const client = await getClient();
@@ -913,6 +980,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "revokeRolesFromUser",
     "Revoke roles from an existing user.",
     { ...dbArg, user: z.string().min(1), roles: roleArg },
+    { ...MUTATE, title: "Revoke roles from user" },
     async ({ db, user, roles }) => {
       try {
         const client = await getClient();

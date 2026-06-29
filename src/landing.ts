@@ -6,7 +6,7 @@
 const FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans:wght@400;500;600;700&family=Noto+Serif:wght@600;700&display=swap";
 
-const ICON_HREF = "https://www.nyuchi.com/icon-light.png";
+const ICON_HREF = "/icon.svg";
 
 const STYLES = `
   :root {
@@ -192,9 +192,9 @@ export function landingHtml(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MongoDB MCP — Nyuchi</title>
-<meta name="description" content="Authenticated remote Model Context Protocol server for MongoDB, running on Cloudflare Workers with WorkOS M2M auth.">
+<meta name="description" content="Authenticated remote Model Context Protocol server for MongoDB, running on Cloudflare Workers with WorkOS OAuth.">
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="${ICON_HREF}" type="image/png">
+<link rel="icon" href="${ICON_HREF}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="${FONTS_HREF}">
@@ -216,9 +216,9 @@ export function landingHtml(): string {
       <h1>An authenticated MCP for your MongoDB clusters.</h1>
       <p class="lead">
         Point Claude Desktop, Cursor, or any Model Context Protocol client at
-        <code>https://mongodb.nyuchi.dev/mcp</code> with a WorkOS M2M
-        access token, and the worker brokers every query — reads, writes,
-        indexes, admin commands — against the cluster you have access to.
+        <code>https://mongodb.nyuchi.dev/mcp</code>, sign in through WorkOS,
+        and the worker brokers every query — reads, writes, indexes, admin
+        commands — against the cluster you have access to.
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#connect">Connect a client</a>
@@ -227,14 +227,13 @@ export function landingHtml(): string {
 
       <h2 id="connect">Connect</h2>
       <p style="color: var(--color-fg-muted); font-size: 0.9375rem;">
-        This is an internal service. Every client must send a WorkOS
-        <strong>M2M</strong> access token as an
-        <code>Authorization: Bearer &lt;token&gt;</code> header — mint it from
-        your WorkOS client id/secret via
-        <code>POST https://&lt;authkit-domain&gt;/oauth2/token</code>
-        (<code>grant_type=client_credentials</code>). Tokens are short-lived, so
-        a small wrapper that refreshes and injects the header is the usual setup.
-        The snippets below show the URLs; add the header per your client.
+        This is an internal service. On first connect your client opens a
+        WorkOS <strong>sign-in</strong> page — authenticate with an account in
+        the allowed organization that holds the <code>mongodb:access</code>
+        permission. The client caches and refreshes the OAuth session itself, so
+        there is no token or header to manage. Clients without native remote
+        support use the <code>mcp-remote</code> proxy snippet, which runs the
+        sign-in for them.
       </p>
       <div class="tabs">
         <details open>
@@ -388,12 +387,12 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
       <h2>How auth works</h2>
       <p>
         The <code>/mcp</code> endpoint is gated by <a href="https://workos.com/authkit">WorkOS</a>
-        <strong>M2M</strong> (<code>client_credentials</code>). There is no
-        public surface — every request must carry a valid short-lived WorkOS
-        JWT, which the worker verifies statelessly against the environment JWKS
-        (issuer, audience, and an optional org-id allowlist) before a single
-        MongoDB query runs. No browser sign-in, no session state; it fails
-        closed when unconfigured.
+        <strong>OAuth</strong> (Authorization Code + PKCE). There is no public
+        surface — clients sign in through WorkOS, and the worker double-gates the
+        session before a single MongoDB query runs: the organization must be in
+        the allowlist, and the <code>mongodb:access</code> permission must be
+        present in the granted OAuth scope (WorkOS grants it only to users whose
+        org role holds it). It fails closed when unconfigured.
       </p>
     </div>
   </main>

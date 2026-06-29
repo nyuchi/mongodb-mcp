@@ -7,6 +7,7 @@ type Registered = {
   name: string;
   description: string;
   schema: Record<string, unknown>;
+  annotations: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<{
     content: { type: "text"; text: string }[];
     isError?: boolean;
@@ -14,7 +15,8 @@ type Registered = {
 };
 
 // Minimal stub that captures every server.tool() call. We don't need a real
-// McpServer — only the surface registerMongoTools touches.
+// McpServer — only the surface registerMongoTools touches. Tools register with
+// the (name, description, schema, annotations, handler) overload.
 function makeFakeServer(): { server: McpServer; tools: Map<string, Registered> } {
   const tools = new Map<string, Registered>();
   const server = {
@@ -22,9 +24,10 @@ function makeFakeServer(): { server: McpServer; tools: Map<string, Registered> }
       name: string,
       description: string,
       schema: Record<string, unknown>,
+      annotations: Record<string, unknown>,
       handler: Registered["handler"],
     ) {
-      tools.set(name, { name, description, schema, handler });
+      tools.set(name, { name, description, schema, annotations, handler });
       return {} as unknown;
     },
   } as unknown as McpServer;
@@ -171,6 +174,15 @@ describe("registerMongoTools", () => {
   it("gives every tool a non-empty human description", () => {
     for (const [name, t] of tools) {
       expect(t.description.length, `${name} description`).toBeGreaterThan(0);
+    }
+  });
+
+  it("gives every tool a title and behavioural annotations", () => {
+    for (const [name, t] of tools) {
+      expect(typeof t.annotations.title, `${name} title`).toBe("string");
+      expect((t.annotations.title as string).length, `${name} title`).toBeGreaterThan(0);
+      expect(typeof t.annotations.readOnlyHint, `${name} readOnlyHint`).toBe("boolean");
+      expect(typeof t.annotations.destructiveHint, `${name} destructiveHint`).toBe("boolean");
     }
   });
 

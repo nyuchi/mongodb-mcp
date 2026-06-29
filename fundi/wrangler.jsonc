@@ -78,6 +78,7 @@
     // WorkOS OAuth "connect" app — same app as mongodb-mcp (both MCPs share one app).
     "WORKOS_CLIENT_ID": "client_01KVTX0V2K1VM3PSC0DJ9VZWTV",
     "WORKOS_ORGANIZATION_ID": "org_01KRDAB894DJF5V38PT5617TV1",
+    "WORKOS_ALLOWED_ORG_IDS": "org_01KRDAB894DJF5V38PT5617TV1",
     "WORKOS_REQUIRED_PERMISSION": "mongodb:access",
     "FUNDI_AI_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
     "FUNDI_AI_GATEWAY": "shamwari",

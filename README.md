@@ -3,34 +3,43 @@
 Authenticated remote **Model Context Protocol** server for managing MongoDB,
 running on Cloudflare Workers. The Nyuchi-hosted deployment lives at
 **<https://mongodb.nyuchi.dev/mcp>**. It is an internal, platform-team-only
-service: callers authenticate with **WorkOS M2M (`client_credentials`)**. You
-can also stand the worker up under your own Cloudflare account against your own
-MongoDB cluster; see _Set up your own MCP server_ further down.
+service: callers sign in with **WorkOS OAuth** (Authorization Code + PKCE) and
+must hold the `mongodb:access` permission. You can also stand the worker up
+under your own Cloudflare account against your own MongoDB cluster; see _Set up
+your own MCP server_ further down.
 
-Every request to `/mcp` must carry a valid WorkOS M2M JWT, so the endpoint is
-never public.
+Every request to `/mcp` rides on a WorkOS-issued OAuth session, so the endpoint
+is never public.
 
 ## Architecture
 
 ```text
-MCP client ──Bearer JWT──> Cloudflare Worker /mcp ──verify (WorkOS JWKS)──> MongoMcp ──> MongoDB
-   │                                                                          (Durable Object)
-   └── obtains the JWT from WorkOS via client_credentials (client id + secret)
+MCP client ──OAuth──> Cloudflare Worker ──> WorkOS AuthKit (sign in)
+   │                       /authorize,/token,/callback        │
+   │                                                          ▼
+   └────────── authorized session ──> MongoMcp (Durable Object) ──> MongoDB
 ```
 
-- A caller exchanges its WorkOS client id/secret for a short-lived JWT at
-  `https://<authkit_domain>/oauth2/token`, then calls `/mcp` with
-  `Authorization: Bearer <jwt>`.
-- The worker `fetch` handler verifies that JWT **statelessly** against the
-  environment JWKS (`src/m2m-auth.ts`): signature, `iss`, `aud`
-  (`WORKOS_M2M_CLIENT_ID`), and an optional `org_id` allowlist. It fails closed.
+- `@cloudflare/workers-oauth-provider` fronts the worker, serving `/authorize`,
+  `/token`, and `/register` and gating `/mcp`.
+- On sign-in, `AuthkitHandler` (`src/authkit-handler.ts`) redirects the user to
+  WorkOS, then on `/callback` exchanges the code (PKCE) and enforces the gate:
+  the access token's `org_id` must be in `WORKOS_ALLOWED_ORG_IDS`, and the
+  required permission (`mongodb:access`) must appear in the granted `scope`.
+  The Connect app exposes permissions **as OAuth scopes**, so the worker
+  requests the permission as a scope and WorkOS grants it only when the user's
+  org role holds it.
 - `MongoMcp` is a `McpAgent` Durable Object. One DO per MCP session caches a
   single `MongoClient` so handshakes amortise across tool calls.
-- All MongoDB operations are registered as MCP tools in `src/tools.ts`.
+- All MongoDB operations are registered as MCP tools in `src/tools.ts`, each
+  carrying a human-friendly `title` and behavioural annotations
+  (`readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`) so
+  clients can auto-approve safe reads and warn before destructive operations.
 
-> **Client note:** Claude's hosted connector speaks OAuth, not
-> `client_credentials`. Consume this server from **Claude Code** (or a small
-> proxy) that mints the M2M token and sets the `Authorization` header.
+> **Client note:** any MCP client that speaks remote OAuth (Claude's hosted
+> connector, Claude Code, Cursor, VS Code, …) can connect directly — it runs
+> the browser sign-in itself. Clients without native remote support use the
+> `mcp-remote` proxy snippet below, which performs the OAuth dance for them.
 
 ## Available tools
 
@@ -58,20 +67,19 @@ If you just want to talk to the Nyuchi-hosted MCP, drop one of the snippets
 below into your client of choice. Replace the URL with your own
 `https://<your-worker>.workers.dev/mcp` if you self-host.
 
-This is an internal service: every client must send a WorkOS **M2M** access
-token as an `Authorization: Bearer <token>` header. Obtain the token from your
-WorkOS client id/secret via `POST https://<authkit_domain>/oauth2/token`
-(`grant_type=client_credentials`). Tokens are short-lived, so a small wrapper
-that refreshes and injects the header is the usual setup. The browser OAuth
-sign-in no longer applies. The snippets below show the URLs; add the
-`Authorization` header (or `--header` flag) per your client.
+This is an internal service. On first connect your client opens a WorkOS
+**sign-in** page in the browser; authenticate with an account that belongs to
+the allowed organization and holds the `mongodb:access` permission. The client
+caches the resulting OAuth session and refreshes it automatically — there is no
+token or header to manage by hand.
 
 ### Claude Desktop / Claude Code (CLI)
 
 Claude Desktop: edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
-Claude Code CLI: run `claude mcp add mongodb https://mongodb.nyuchi.dev/mcp --transport http --header "Authorization: Bearer <m2m-token>"`
-(or add the snippet below to `~/.claude.json`).
+Claude Code CLI: run `claude mcp add mongodb https://mongodb.nyuchi.dev/mcp --transport http`
+(or add the snippet below to `~/.claude.json`). It will prompt you to sign in
+through WorkOS on first use.
 
 ```jsonc
 {
@@ -116,7 +124,8 @@ the equivalent `mcp` block in user settings:
 
 ### Windsurf / Continue / Zed
 
-These ship MCP support but do not yet speak remote HTTP — wrap with `mcp-remote`:
+These ship MCP support but do not yet speak remote HTTP — wrap with `mcp-remote`,
+which runs the OAuth sign-in for them:
 
 ```jsonc
 {
@@ -162,9 +171,8 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
 ### Anything else
 
 Any MCP client that can spawn a subprocess works via the proxy snippet shown
-under "Windsurf / Continue / Zed". Whichever client you use, it must attach a
-valid WorkOS M2M `Authorization: Bearer` token — typically via a small wrapper
-that mints and refreshes the token from your client id/secret.
+under "Windsurf / Continue / Zed". `mcp-remote` handles the WorkOS OAuth
+sign-in and token refresh on the client's behalf.
 
 ## Set up your own MCP server
 
@@ -179,30 +187,40 @@ deployment in the previous section.
 npm install
 ```
 
-### 2. Provision a WorkOS M2M application
+### 2. Provision a WorkOS Connect application
 
 In the WorkOS dashboard:
 
-1. Create an application of type **M2M** (machine-to-machine). Its client id is
-   the JWT `aud` your worker expects.
-2. Issue a **credential** (client id + secret) to each caller (e.g. your Claude
-   Code setup). No redirect URI is needed for M2M.
-3. Note your environment's **AuthKit domain** (e.g. `https://<env>.authkit.app`).
+1. Create a **Connect** (OAuth) application. Note its **client id**.
+2. Add your worker's callback as a redirect URI:
+   `https://<your-worker>/callback`.
+3. Under **Authorization**, define a permission (e.g. `mongodb:access`) and
+   attach it to the role(s) you want to grant. The Connect app surfaces
+   permissions as OAuth scopes, so the worker can request the permission and
+   WorkOS grants it only to users whose org role holds it.
+4. Note your environment's **AuthKit/OAuth domain** (e.g.
+   `https://<env>.authkit.app`) — it is both issuer and OAuth base.
 
 ### 3. Configure the gate
 
 Set these non-secret `vars` in `wrangler.jsonc`:
 
-- `WORKOS_AUTHKIT_DOMAIN` — `https://<env>.authkit.app` (issuer + JWKS base)
-- `WORKOS_M2M_CLIENT_ID` — the M2M application client id (expected `aud`)
-- optionally `WORKOS_ALLOWED_ORG_IDS` — a comma-separated `org_id` allowlist
+- `WORKOS_AUTHKIT_DOMAIN` — `https://<env>.authkit.app` (issuer + OAuth base)
+- `WORKOS_CLIENT_ID` — the Connect application client id
+- `WORKOS_ORGANIZATION_ID` — the org the sign-in flow is pinned to
+- `WORKOS_ALLOWED_ORG_IDS` — comma-separated `org_id` allowlist
+- `WORKOS_REQUIRED_PERMISSION` — permission requested as a scope and enforced
+  (e.g. `mongodb:access`)
+
+Then set the secrets:
 
 ```sh
 npx wrangler secret put MONGODB_URI
+npx wrangler secret put COOKIE_ENCRYPTION_KEY   # any long random string
 ```
 
-The worker holds **no** WorkOS secret — callers keep their own client id/secret
-and exchange them for tokens themselves.
+`COOKIE_ENCRYPTION_KEY` encrypts the client-approval cookie; the worker holds
+no WorkOS secret (the Connect flow is a public PKCE client).
 
 ### 4. MongoDB user role requirements
 
@@ -237,7 +255,7 @@ npm run dev
 ```
 
 Open `http://localhost:8788/mcp` with an MCP client (see _How to use_ above and
-substitute the local URL), sending a valid `Authorization: Bearer` M2M token.
+substitute the local URL); the client runs the WorkOS sign-in on first connect.
 
 ### 6. Deploy
 
@@ -256,8 +274,8 @@ Coverage:
 
 - `test/mongo.test.ts` — Extended JSON parse/stringify helpers (including
   truncation of oversized payloads).
-- `test/tools.test.ts` — `permissionHint` / `fail` enrichment and the full
-  registered-tool catalogue.
+- `test/tools.test.ts` — `permissionHint` / `fail` enrichment, the full
+  registered-tool catalogue, and the per-tool title + annotations.
 
 End-to-end smoke testing against a real WorkOS tenant + MongoDB cluster is not
 in the test suite; spin up `wrangler dev` with `.dev.vars` to exercise the
@@ -273,13 +291,17 @@ which is the only place Workers permit TCP connections.
 
 ## Security notes
 
-- The MCP endpoint is **not** public. The worker rejects any `/mcp` request
-  without a valid WorkOS M2M JWT (`401`), and fails closed (`503`) when the gate
-  is unconfigured.
+- The MCP endpoint is **not** public. `/mcp` is reachable only through a
+  WorkOS-authorized OAuth session; unauthenticated requests never reach the
+  tools, and the gate fails closed when unconfigured.
+- Access is double-gated: the session's `org_id` must be in the allowlist **and**
+  the `mongodb:access` permission must be present in the granted OAuth scope
+  (WorkOS grants it only to users whose org role holds it).
 - `deleteMany` with an empty filter and `dropCollection` both require an
   explicit confirmation flag from the tool caller.
-- M2M access tokens are short-lived and verified statelessly against the WorkOS
-  JWKS (`iss` / `aud`, optional `org_id`); the worker stores no WorkOS secret.
+- The worker stores no WorkOS secret (public PKCE client);
+  `COOKIE_ENCRYPTION_KEY` encrypts the client-approval cookie and `MONGODB_URI`
+  is a Wrangler secret.
 - CI runs `npm audit`, `actions/dependency-review-action`, and `gitleaks` on
   every PR — see `.github/workflows/security.yml`. CodeQL static analysis is
   handled by GitHub's Default Setup (Settings → Code security & analysis).
