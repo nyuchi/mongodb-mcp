@@ -13,6 +13,7 @@ import { getTaskStatus } from "./ledger";
 import { BUNDU_COMMONS_ID, buildClient, COLLECTION, DB } from "./mongo";
 import { encodePlusCode } from "./pluscode";
 import { overpassLookup } from "./skills/overpass";
+import { resolveHierarchy } from "./skills/resolve-hierarchy";
 import { bulkIntentSchema, categoriesSchema, regionSchema, sourceSchema } from "./types";
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -302,6 +303,73 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
             categories ?? "all",
           );
           return ok({ count: features.length, features: features.slice(0, 50) });
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    );
+
+    this.server.tool(
+      "resolve_hierarchy",
+      "Reverse-geocode a lat/lng via Nominatim and match against seeded placesGeo records to preview what hierarchy (countryId, provinceId, containedInPlaceId) Fundi would assign to a place at that location.",
+      {
+        lat: z.number(),
+        lng: z.number(),
+        endpoint: z.string().url().optional().describe("Nominatim base URL override."),
+      },
+      { ...READ, openWorldHint: true, title: "Resolve hierarchy" },
+      async ({ lat, lng, endpoint }) => {
+        try {
+          const client = await this.getMongo();
+          const placesDb = client.db(DB.places);
+          const result = await resolveHierarchy(
+            { endpoint: endpoint ?? "https://nominatim.openstreetmap.org" },
+            placesDb,
+            lat,
+            lng,
+          );
+          return ok(result);
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    );
+
+    this.server.tool(
+      "list_geo_areas",
+      "List seeded administrative areas in placesGeo by type (continent, country, province, city, town, village, district, region). Shows what geographic hierarchy data is available for containment resolution.",
+      {
+        geoType: z
+          .enum(["continent", "country", "province", "city", "town", "village", "district", "region"])
+          .optional()
+          .describe("Filter by admin level. Omit to see counts across all types."),
+        parentPlaceId: z.string().optional().describe("Filter to children of a specific parent."),
+        limit: z.number().int().min(1).max(100).default(20),
+      },
+      { ...READ, title: "List geo areas" },
+      async ({ geoType, parentPlaceId, limit }) => {
+        try {
+          const client = await this.getMongo();
+          const col = client.db(DB.places).collection(COLLECTION.placesGeo);
+
+          if (!geoType) {
+            const counts = await col
+              .aggregate([{ $group: { _id: "$geoType", count: { $sum: 1 } } }, { $sort: { count: -1 } }])
+              .toArray();
+            return ok({ summary: counts });
+          }
+
+          const filter: Record<string, unknown> = { geoType };
+          if (parentPlaceId) filter.parentPlaceId = parentPlaceId;
+
+          const docs = await col
+            .find(filter, {
+              projection: { _id: 1, name: 1, geoType: 1, isoCode: 1, parentPlaceId: 1, population: 1 },
+              limit,
+              sort: { name: 1 },
+            })
+            .toArray();
+          return okEjson({ count: docs.length, areas: docs });
         } catch (e) {
           return fail(e);
         }
