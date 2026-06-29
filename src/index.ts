@@ -11,11 +11,13 @@ export class MongoMcp extends McpAgent<Env, unknown, Props> {
   server = new McpServer({
     name: "mongodb-mcp",
     title: "MongoDB MCP",
-    version: "0.1.0",
+    version: "0.1.21",
     description:
       "Authenticated remote Model Context Protocol server for managing MongoDB clusters.",
     websiteUrl: "https://mongodb.nyuchi.dev",
-    icons: [{ src: "https://mongodb.nyuchi.dev/icon.png", mimeType: "image/png", sizes: ["any"] }],
+    icons: [
+      { src: "https://mongodb.nyuchi.dev/icon.svg", mimeType: "image/svg+xml", sizes: ["any"] },
+    ],
   });
 
   // Cached per Durable Object instance. The DO sticks around across many

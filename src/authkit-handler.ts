@@ -1,6 +1,7 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import * as jose from "jose";
+import { iconSvg } from "./icon";
 import { landingHtml } from "./landing";
 import type { Props } from "./props";
 import {
@@ -38,6 +39,12 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   await env.OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
 
   const redirectUri = new URL("/callback", requestUrl).href;
+  // The Connect app exposes permissions as OAuth scopes. Request the required
+  // permission so WorkOS grants it (in the token's `scope` claim) only when the
+  // user's org role actually holds it.
+  const scopes = ["openid", "email", "profile"];
+  const requiredPermission = (env.WORKOS_REQUIRED_PERMISSION || "").trim();
+  if (requiredPermission) scopes.push(requiredPermission);
   const params = new URLSearchParams({
     client_id: env.WORKOS_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -45,10 +52,9 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
     state: stateToken,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
-    scope: "openid email profile",
+    scope: scopes.join(" "),
   });
-  // WorkOS only emits the RBAC `permissions` claim for organization-scoped
-  // sessions, so pin the flow to our org when configured.
+  // Pin the flow to our org so the token is organization-scoped.
   if (env.WORKOS_ORGANIZATION_ID) {
     params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
   }
@@ -67,18 +73,17 @@ app.get("/", (c) => {
   });
 });
 
-const ICON_REDIRECT = "https://www.nyuchi.com/icon-light.png";
-function redirectToIcon() {
-  return new Response(null, {
-    status: 301,
+function serveIcon() {
+  return new Response(iconSvg, {
     headers: {
-      Location: ICON_REDIRECT,
+      "Content-Type": "image/svg+xml; charset=utf-8",
       "Cache-Control": "public, max-age=86400",
     },
   });
 }
-app.get("/favicon.ico", () => redirectToIcon());
-app.get("/icon.png", () => redirectToIcon());
+app.get("/favicon.ico", () => serveIcon());
+app.get("/icon.svg", () => serveIcon());
+app.get("/icon.png", () => serveIcon());
 
 app.get("/authorize", async (c) => {
   const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
@@ -105,6 +110,7 @@ app.get("/authorize", async (c) => {
     server: {
       description:
         "Authenticated MCP for managing MongoDB. WorkOS verifies your identity before the MCP client gets access.",
+      logo: new URL("/icon.svg", c.req.url).href,
       name: "MongoDB MCP",
     },
     setCookie,
@@ -239,8 +245,15 @@ app.get("/callback", async (c) => {
       ? (idClaims as { name: string }).name
       : [rawGiven, rawFamily].filter((v) => typeof v === "string").join(" ") || undefined;
 
-  const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string }>(accessToken);
-  const permissions: string[] = atClaims.permissions ?? [];
+  const atClaims = jose.decodeJwt<{ permissions?: string[]; org_id?: string; scope?: string }>(
+    accessToken,
+  );
+  // The Connect app grants permissions as OAuth scopes, so the granted
+  // permission lands in the space-delimited `scope` claim; also accept a
+  // `permissions` array if present.
+  const grantedScopes =
+    typeof atClaims.scope === "string" ? atClaims.scope.split(" ").filter(Boolean) : [];
+  const permissions: string[] = [...(atClaims.permissions ?? []), ...grantedScopes];
   const organizationId = atClaims.org_id;
 
   const allowedOrgs = (c.env.WORKOS_ALLOWED_ORG_IDS || "")

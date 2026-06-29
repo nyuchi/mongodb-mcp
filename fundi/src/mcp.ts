@@ -33,6 +33,23 @@ function fail(err: unknown): ToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
+// MCP tool annotations: advisory hints clients use to render and guard tools.
+// READ never mutates; ENQUEUE creates ingestion work (writes, but not
+// destructive). `openWorldHint` is true only when a tool reaches an external
+// service (e.g. Overpass / OSM).
+const READ = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+const ENQUEUE = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
 const PLACE_PROJECTION = {
   _id: 1,
   name: 1,
@@ -66,6 +83,13 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
     description:
       "Agentic ingestion worker. Turns regions into clean, sovereign, tier-0 place and entity records.",
     websiteUrl: "https://fundi.nyuchi.dev",
+    icons: [
+      {
+        src: "https://fundi-ingestion.nyuchi.dev/icon.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["any"],
+      },
+    ],
   });
 
   // Cached read client for the inspection tools. Connect only inside a handler.
@@ -85,6 +109,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
       "seed_region",
       "Enqueue a seed task for a region. The main entry point — what a search-miss or app empty-state calls. Returns immediately with a task id; ingestion runs asynchronously.",
       { region: regionSchema, categories: categoriesSchema.optional(), source: sourceSchema },
+      { ...ENQUEUE, title: "Seed region" },
       async ({ region, categories, source }) => {
         try {
           const outcome = await submitSeedTask(this.env, {
@@ -103,6 +128,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
       "seed_admin_bulk",
       "Run a bulk generator (e.g. all African capitals, 20km radius). Fans one intent out into many atomic region tasks.",
       { intent: bulkIntentSchema },
+      { ...ENQUEUE, title: "Bulk seed regions" },
       async ({ intent }) => {
         try {
           const outcomes = await submitBulkIntent(this.env, intent);
@@ -121,6 +147,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
       "task_status",
       "Look up a task in the ledger by id.",
       { taskId: z.string().min(1) },
+      { ...READ, title: "Task status" },
       async ({ taskId }) => {
         try {
           const row = await getTaskStatus(this.env, taskId);
@@ -135,6 +162,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
       "task_records",
       "Display exactly what a task built — the places (+ linked entities) it created, fetched by their logged ids. Deterministic per task, so concurrent tasks/users never interfere (unlike recency).",
       { taskId: z.string().min(1) },
+      { ...READ, title: "Task records" },
       async ({ taskId }) => {
         try {
           const row = await getTaskStatus(this.env, taskId);
@@ -186,6 +214,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
         near: z.tuple([z.number(), z.number()]).optional().describe("[lng, lat] — return nearest"),
         radiusMeters: z.number().positive().max(50_000).optional(),
       },
+      { ...READ, title: "List recent places" },
       async ({ limit, near, radiusMeters }) => {
         try {
           const client = await this.getMongo();
@@ -245,6 +274,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
       "compute_pluscode",
       "Compute an Open Location Code (Plus Code) from lat/lng, locally — no API, no key.",
       { lat: z.number(), lng: z.number(), codeLength: z.number().int().min(2).max(15).optional() },
+      { ...READ, title: "Compute Plus Code" },
       async ({ lat, lng, codeLength }) => {
         try {
           return ok({ plusCode: encodePlusCode(lat, lng, codeLength ?? 10) });
@@ -262,6 +292,7 @@ export class FundiMcp extends McpAgent<Env, unknown, Record<string, unknown>> {
         categories: categoriesSchema.optional(),
         endpoint: z.string().url().optional(),
       },
+      { ...READ, openWorldHint: true, title: "Overpass lookup" },
       async ({ bbox, categories, endpoint }) => {
         try {
           const [s, w, n, e] = bbox;
