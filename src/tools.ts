@@ -994,4 +994,323 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       }
     },
   );
+
+  server.tool(
+    "listUsers",
+    "List users on a database (usersInfo). Complements createUser / updateUser / dropUser.",
+    {
+      ...dbArg,
+      user: z.string().optional().describe("Filter to a specific username. Omit for all users on the database."),
+      showPrivileges: z.boolean().default(false),
+      showCredentials: z.boolean().default(false),
+    },
+    { ...READ, title: "List users" },
+    async ({ db, user, showPrivileges, showCredentials }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          usersInfo: user ? { user, db } : 1,
+          showPrivileges,
+          showCredentials,
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- role management ----------
+
+  server.tool(
+    "listRoles",
+    "List roles defined on a database (rolesInfo). Use showBuiltinRoles to include built-ins like read / readWrite / dbAdmin.",
+    {
+      ...dbArg,
+      showBuiltinRoles: z.boolean().default(false),
+      showPrivileges: z.boolean().default(false),
+    },
+    { ...READ, title: "List roles" },
+    async ({ db, showBuiltinRoles, showPrivileges }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ rolesInfo: 1, showBuiltinRoles, showPrivileges });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "createRole",
+    "Create a custom role with specified privileges and inherited roles.",
+    {
+      ...dbArg,
+      role: z.string().min(1).describe("Role name."),
+      privileges: jsonArray.describe(
+        'Array of privilege docs, e.g. [{"resource": {"db": "app", "collection": ""}, "actions": ["find", "insert"]}].',
+      ),
+      roles: roleArg.describe("Roles this role inherits from."),
+    },
+    { ...ADD, title: "Create role" },
+    async ({ db, role, privileges, roles }) => {
+      try {
+        const privs = parseExtendedJson<Document[]>(privileges);
+        if (!Array.isArray(privs)) throw new Error("privileges must be an array");
+        const client = await getClient();
+        const result = await client.db(db).command({
+          createRole: role,
+          privileges: privs,
+          roles: Array.isArray(roles) ? roles : [roles],
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "dropRole",
+    "Drop a custom role from a database. Requires confirm: true.",
+    { ...dbArg, role: z.string().min(1), confirm: z.literal(true) },
+    { ...MUTATE, title: "Drop role" },
+    async ({ db, role }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ dropRole: role });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- database admin ----------
+
+  server.tool(
+    "dropDatabase",
+    "Drop an entire database and all its collections. Requires confirm: true. Irreversible.",
+    { ...dbArg, confirm: z.literal(true) },
+    { ...MUTATE, title: "Drop database" },
+    async ({ db }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).dropDatabase();
+        return ok({ dropped: result, db });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "collMod",
+    "Modify collection options: JSON Schema validator, validationAction, changeStreamPreAndPostImages, or hide/unhide an index.",
+    {
+      ...collArg,
+      options: jsonDoc.describe(
+        'Modification doc, e.g. {"validator": {"$jsonSchema": {...}}, "validationAction": "warn"} or {"index": {"name": "myIdx", "hidden": true}}.',
+      ),
+    },
+    { ...MUTATE, title: "Modify collection" },
+    async ({ db, collection, options }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          collMod: collection,
+          ...parseExtendedJson<Document>(options),
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "validate",
+    "Validate a collection's internal structure and indexes. Non-destructive by default.",
+    {
+      ...collArg,
+      full: z.boolean().default(false).describe("Full validation — thorough but slow on large collections."),
+    },
+    { ...READ, title: "Validate collection" },
+    async ({ db, collection, full }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ validate: collection, full });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- monitoring ----------
+
+  server.tool(
+    "serverStatus",
+    "Return server status: connections, opcounters, memory, replication state. Excludes bulky wiredTiger/tcmalloc sections by default.",
+    {
+      includeAll: z.boolean().default(false).describe("Include all sections (wiredTiger, tcmalloc, locks). Output can be very large."),
+    },
+    { ...READ, title: "Server status" },
+    async ({ includeAll }) => {
+      try {
+        const client = await getClient();
+        const cmd: Document = { serverStatus: 1 };
+        if (!includeAll) {
+          cmd.wiredTiger = 0;
+          cmd.tcmalloc = 0;
+          cmd.locks = 0;
+          cmd.logicalSessionRecordCache = 0;
+          cmd.twoPhaseCommitCoordinator = 0;
+        }
+        const result = await client.db("admin").command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "hostInfo",
+    "Return MongoDB version, OS, and hardware information.",
+    {},
+    { ...READ, title: "Host info" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ hostInfo: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "currentOp",
+    "Show currently-running operations. Useful for diagnosing long-running queries or locks.",
+    {
+      filter: jsonDoc.optional().describe('Optional filter, e.g. {"active": true} or {"op": "query", "secs_running": {"$gt": 5}}.'),
+    },
+    { ...READ, title: "Current operations" },
+    async ({ filter }) => {
+      try {
+        const client = await getClient();
+        const cmd: Document = { currentOp: 1 };
+        if (filter) Object.assign(cmd, parseExtendedJson<Document>(filter));
+        const result = await client.db("admin").command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "killOp",
+    "Kill a running operation by its opId (from currentOp). Use with caution — may leave write operations partially applied.",
+    { opId: z.number().int().describe("Operation id from currentOp.inprog[].opid.") },
+    { ...MUTATE, title: "Kill operation" },
+    async ({ opId }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ killOp: 1, op: opId });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // ---------- profiling ----------
+
+  server.tool(
+    "getProfilingStatus",
+    "Return the current slow-query profiling level and slowms threshold for a database.",
+    { ...dbArg },
+    { ...READ, title: "Get profiling status" },
+    async ({ db }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ profile: -1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "setProfilingLevel",
+    "Set slow-query profiling: 0 = off, 1 = slow ops (above slowms), 2 = all ops.",
+    {
+      ...dbArg,
+      level: z.number().int().min(0).max(2).describe("0 = off, 1 = slow ops, 2 = all ops."),
+      slowms: z.number().int().min(-1).optional().describe("Threshold in milliseconds for level 1 (default 100)."),
+      sampleRate: z.number().min(0).max(1).optional().describe("Fraction of slow ops to profile, 0.0–1.0."),
+    },
+    { ...MUTATE, title: "Set profiling level" },
+    async ({ db, level, slowms, sampleRate }) => {
+      try {
+        const client = await getClient();
+        const cmd: Document = { profile: level };
+        if (slowms !== undefined) cmd.slowms = slowms;
+        if (sampleRate !== undefined) cmd.sampleRate = sampleRate;
+        const result = await client.db(db).command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "getProfilingData",
+    "Fetch recent entries from system.profile (slow-query log). Requires profiling level ≥ 1.",
+    {
+      ...dbArg,
+      filter: jsonDoc.optional().describe('e.g. {"ns": "mydb.users", "millis": {"$gt": 500}}.'),
+      limit: z.number().int().min(1).max(100).default(20),
+    },
+    { ...READ, title: "Get profiling data" },
+    async ({ db, filter, limit }) => {
+      try {
+        const client = await getClient();
+        const docs = await client
+          .db(db)
+          .collection("system.profile")
+          .find(filter ? parseExtendedJson<Document>(filter) : {}, { sort: { ts: -1 }, limit })
+          .toArray();
+        return ok({ count: docs.length, documents: docs });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "indexStats",
+    "Return $indexStats for a collection — per-index usage counts since the last mongod restart.",
+    { ...collArg },
+    { ...READ, title: "Index stats" },
+    async ({ db, collection }) => {
+      try {
+        const client = await getClient();
+        const docs = await client
+          .db(db)
+          .collection(collection)
+          .aggregate([{ $indexStats: {} }])
+          .toArray();
+        return ok({ count: docs.length, indexes: docs });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }
