@@ -9,9 +9,10 @@ Workers, served at `https://mongodb.nyuchi.dev/mcp`. A WorkOS **OAuth**
 (Authorization Code + PKCE) gate fronts `/mcp`; the endpoint never accepts
 unauthenticated traffic. Internal, platform-team-only.
 
-The repo also hosts a second worker under `fundi/` — the Fundi place-ingestion
-MCP (`https://fundi-ingestion.nyuchi.dev/mcp`). It shares the same WorkOS OAuth
-gate and conventions; see `fundi/src/`.
+The Fundi place-ingestion worker (`https://fundi-ingestion.nyuchi.dev/mcp`)
+used to live here under `fundi/`; it moved to `nyuchi/barstool`
+(`workers/fundi-ingestion/`) — Kweli is the places app, so place ingestion
+lives with it. This repo is the MongoDB MCP only.
 
 ## Architecture in one breath
 
@@ -35,7 +36,6 @@ permission scope, and completes the OAuth grant. Authorized sessions reach
 | `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                    |
 | `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.             |
 | `src/landing.ts`             | Static landing page served at `/`.                                   |
-| `fundi/`                     | The Fundi ingestion worker (own `src/`, `wrangler.jsonc`, tests).    |
 | `test/`                      | Vitest specs (run inside `workerd` via the Cloudflare pool).         |
 | `wrangler.jsonc`             | Production worker config; DO + `OAUTH_KV` bindings live here.        |
 | `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here.     |

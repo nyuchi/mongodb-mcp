@@ -11,11 +11,7 @@
     "cf-typegen": "wrangler types",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "dev:fundi": "wrangler dev -c fundi/wrangler.jsonc",
-    "deploy:fundi": "wrangler deploy -c fundi/wrangler.jsonc",
-    "type-check:fundi": "tsc --noEmit -p fundi/tsconfig.json",
-    "test:fundi": "vitest run --root fundi"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.8.1",
