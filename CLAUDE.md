@@ -24,6 +24,12 @@ permission scope, and completes the OAuth grant. Authorized sessions reach
 `MongoMcp` (a Durable Object subclass of `McpAgent`) which caches one
 `MongoClient` per session and registers all tools from `src/tools.ts`.
 
+`McpAgent` is deprecated as of `agents@0.21` in favour of a stateless
+`createMcpHandler` factory on MCP SDK v2. We stay on `McpAgent` (and therefore
+on `@modelcontextprotocol/sdk` v1 for the `McpServer` object) because the
+stateless handler drops the Durable Object, and with it the per-session
+`MongoClient` cache. Migrating needs a connection-reuse plan first.
+
 ## Where things live
 
 | Path                         | Purpose                                                              |
@@ -124,6 +130,14 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
   that value-import CommonJS-only packages (notably the `mongodb` driver)
   blow up at import time — keep them out of any file the tests transitively
   load.
+- `bson` is pinned to `7.2.0` via `overrides`. 7.3.0 generates random bytes in
+  `ObjectId`'s module-scope static initializer, which workerd rejects
+  ("Disallowed operation called within global scope") at startup validation.
+- `agents@0.21` imports `@modelcontextprotocol/server` and
+  `@modelcontextprotocol/client` (MCP SDK v2) at module scope even on the
+  legacy `McpAgent` path, and `.npmrc` sets `legacy-peer-deps=true`, so both
+  are listed as direct dependencies. Drop them and the bundle fails to
+  resolve.
 
 ## Release flow
 

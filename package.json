@@ -14,24 +14,26 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.8.1",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "agents": "^0.17.1",
-    "hono": "^4.12.26",
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "agents": "^0.21.0",
+    "hono": "^4.13.3",
     "jose": "^6.2.3",
-    "mongodb": "7.4.0",
+    "mongodb": "7.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.20",
-    "@cloudflare/workers-types": "^4.20260629.1",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260818.1",
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9",
-    "wrangler": "^4.92.0"
+    "wrangler": "^4.124.0"
   },
   "overrides": {
-    "hono": "^4.12.26",
+    "hono": "^4.13.3",
     "bson": "7.2.0"
   }
 }
