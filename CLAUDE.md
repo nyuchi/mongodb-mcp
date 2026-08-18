@@ -133,6 +133,11 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
 - `bson` is pinned to `7.2.0` via `overrides`. 7.3.0 generates random bytes in
   `ObjectId`'s module-scope static initializer, which workerd rejects
   ("Disallowed operation called within global scope") at startup validation.
+- `fast-uri` and `ip-address` are floored via `overrides` to clear high-severity
+  advisories that `security.yml`'s `npm audit --omit=dev --audit-level=high` job
+  fails on. They reach us transitively through `@modelcontextprotocol/sdk`
+  (`ajv` and `express-rate-limit`); drop the overrides once the SDK ships
+  patched ranges.
 - `agents@0.21` imports `@modelcontextprotocol/server` and
   `@modelcontextprotocol/client` (MCP SDK v2) at module scope even on the
   legacy `McpAgent` path, and `.npmrc` sets `legacy-peer-deps=true`, so both
