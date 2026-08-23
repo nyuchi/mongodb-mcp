@@ -44,7 +44,7 @@ MCP client ──OAuth──> Cloudflare Worker ──> WorkOS AuthKit (sign in)
 ## Available tools
 
 Discovery: `listDatabases`, `listCollections`, `dbStats`, `collStats`, `ping`,
-`serverStatus`, `hostInfo`.
+`serverStatus`, `hostInfo`, `buildInfo`, `connectionStatus`, `listCommands`.
 Reads: `find`, `findOne`, `count`, `aggregate`, `distinct`,
 `estimatedDocumentCount`, `explain`.
 Writes: `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`,
@@ -52,16 +52,28 @@ Writes: `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`,
 `findOneAndUpdate`, `findOneAndReplace`, `findOneAndDelete`, `bulkWrite`.
 Admin: `createCollection`, `dropCollection` (requires `confirm: true`),
 `dropDatabase` (requires `confirm: true`), `renameCollection`, `createView`,
-`collMod`, `validate`, `createIndex`, `listIndexes`, `dropIndex`,
-`indexStats`, `runCommand`.
-Monitoring: `currentOp`, `killOp`, `getProfilingStatus`, `setProfilingLevel`,
-`getProfilingData`.
+`collMod`, `validate`, `convertToCapped` (requires `confirm: true`),
+`dataSize`, `dbHash`, `runCommand`.
+Indexes: `createIndex`, `createIndexes`, `listIndexes`, `dropIndex`,
+`dropIndexes` (requires `confirm: true`), `hideIndex`, `unhideIndex`,
+`indexStats`.
+Monitoring: `currentOp`, `killOp`, `top`, `connPoolStats`, `getLog`,
+`getProfilingStatus`, `setProfilingLevel`, `getProfilingData`.
+Replication and sharding: `replSetGetStatus`, `listShards`, `balancerStatus`,
+`enableSharding` (requires `confirm: true`), `shardCollection` (requires
+`confirm: true`).
 Atlas Search: `listSearchIndexes`, `createSearchIndex`, `updateSearchIndex`,
 `dropSearchIndex`.
 User management: `createUser`, `updateUser`, `dropUser` (requires
 `confirm: true`), `grantRolesToUser`, `revokeRolesFromUser`, `listUsers`.
-Role management: `listRoles`, `createRole`, `dropRole` (requires
-`confirm: true`).
+Role management: `listRoles`, `createRole`, `updateRole`, `dropRole` (requires
+`confirm: true`), `grantRolesToRole`, `revokeRolesFromRole`,
+`grantPrivilegesToRole`, `revokePrivilegesFromRole`.
+
+`connectionStatus` is the quickest way to see which user the server is
+authenticated as and exactly which privileges it holds — start there when a
+tool comes back with "not authorized". `hideIndex` lets you retire an index
+safely: hide it, watch for regressions, then `dropIndex` once you are sure.
 
 All filter/document/pipeline arguments accept **Extended JSON** so you can pass
 `{"_id": {"$oid": "..."}}` or `{"createdAt": {"$gte": {"$date": "2025-01-01"}}}`
@@ -234,14 +246,16 @@ The user encoded in `MONGODB_URI` must have the privileges for whichever tools
 you intend to call — the MCP can only do what that user is authorised to do.
 Grant the smallest role that covers your usage:
 
-| Tools you want to use                                                                                                                                                   | Required role (on the target db)                              |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `find`, `findOne`, `count`, `aggregate`, `distinct`, `listIndexes`, `collStats`                                                                                         | `read`                                                        |
-| Above + `insert*`, `update*`, `delete*`, `replaceOne`, `findOneAnd*`, `bulkWrite`, `createIndex`, `dropIndex`, `createCollection`, `dropCollection`, `renameCollection` | `readWrite`                                                   |
-| `createView`, `explain`, `dbStats`, profiler-style commands via `runCommand`                                                                                            | `dbAdmin` (combine with `readWrite`, or use `dbOwner`)        |
-| `createUser`, `updateUser`, `dropUser`, `grantRolesToUser`, `revokeRolesFromUser`                                                                                       | `userAdmin`                                                   |
-| Atlas Search tools (`listSearchIndexes`, `createSearchIndex`, …)                                                                                                        | Atlas-cluster role with Search privileges (e.g. `atlasAdmin`) |
-| Anything on every database in the cluster                                                                                                                               | `readWriteAnyDatabase` / `dbAdminAnyDatabase` / `root`        |
+| Tools you want to use                                                                                                                                                                                                                               | Required role (on the target db)                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `find`, `findOne`, `count`, `aggregate`, `distinct`, `listIndexes`, `collStats`, `dataSize`, `dbHash`                                                                                                                                               | `read`                                                                |
+| Above + `insert*`, `update*`, `delete*`, `replaceOne`, `findOneAnd*`, `bulkWrite`, `createIndex`, `createIndexes`, `dropIndex`, `createCollection`, `dropCollection`, `renameCollection`                                                            | `readWrite`                                                           |
+| `createView`, `explain`, `dbStats`, `collMod`, `validate`, `convertToCapped`, `dropIndexes`, `hideIndex`, `unhideIndex`, `indexStats`, profiler tools (`getProfilingStatus`, `setProfilingLevel`, `getProfilingData`)                               | `dbAdmin` (combine with `readWrite`, or use `dbOwner`)                |
+| `createUser`, `updateUser`, `dropUser`, `grantRolesToUser`, `revokeRolesFromUser`, `listUsers`, `listRoles`, `createRole`, `updateRole`, `dropRole`, `grantRolesToRole`, `revokeRolesFromRole`, `grantPrivilegesToRole`, `revokePrivilegesFromRole` | `userAdmin`                                                           |
+| `serverStatus`, `hostInfo`, `buildInfo`, `listCommands`, `getLog`, `top`, `connPoolStats`, `currentOp`, `replSetGetStatus`, `listShards`, `balancerStatus`                                                                                          | `clusterMonitor` (on `admin`, part of `clusterAdmin`)                 |
+| `killOp`, `enableSharding`, `shardCollection`                                                                                                                                                                                                       | `clusterManager` / `hostManager` (on `admin`, part of `clusterAdmin`) |
+| Atlas Search tools (`listSearchIndexes`, `createSearchIndex`, …)                                                                                                                                                                                    | Atlas-cluster role with Search privileges (e.g. `atlasAdmin`)         |
+| Anything on every database in the cluster                                                                                                                                                                                                           | `readWriteAnyDatabase` / `dbAdminAnyDatabase` / `root`                |
 
 Tools that hit a permission boundary return the MongoDB error plus a hint
 pointing back to this section, so you can iterate without trial-and-error.

@@ -150,8 +150,12 @@ describe("registerMongoTools", () => {
       "renameCollection",
       "createView",
       "createIndex",
+      "createIndexes",
       "listIndexes",
       "dropIndex",
+      "dropIndexes",
+      "hideIndex",
+      "unhideIndex",
       "runCommand",
       // Atlas Search
       "listSearchIndexes",
@@ -168,16 +172,36 @@ describe("registerMongoTools", () => {
       // role management
       "listRoles",
       "createRole",
+      "updateRole",
       "dropRole",
+      "grantRolesToRole",
+      "revokeRolesFromRole",
+      "grantPrivilegesToRole",
+      "revokePrivilegesFromRole",
       // database admin
       "dropDatabase",
       "collMod",
       "validate",
+      "dataSize",
+      "dbHash",
+      "convertToCapped",
       // monitoring
       "serverStatus",
       "hostInfo",
+      "buildInfo",
+      "connectionStatus",
+      "listCommands",
+      "getLog",
+      "top",
+      "connPoolStats",
       "currentOp",
       "killOp",
+      // replication & sharding
+      "replSetGetStatus",
+      "listShards",
+      "balancerStatus",
+      "enableSharding",
+      "shardCollection",
       // profiling
       "getProfilingStatus",
       "setProfilingLevel",
@@ -202,6 +226,28 @@ describe("registerMongoTools", () => {
       expect((t.annotations.title as string).length, `${name} title`).toBeGreaterThan(0);
       expect(typeof t.annotations.readOnlyHint, `${name} readOnlyHint`).toBe("boolean");
       expect(typeof t.annotations.destructiveHint, `${name} destructiveHint`).toBe("boolean");
+    }
+  });
+
+  it("gates every irreversible tool behind confirm: true", () => {
+    const gated = [
+      "dropCollection",
+      "dropDatabase",
+      "dropIndexes",
+      "dropUser",
+      "dropRole",
+      "convertToCapped",
+      "enableSharding",
+      "shardCollection",
+    ];
+    for (const name of gated) {
+      const confirm = tools.get(name)?.schema.confirm as
+        | { safeParse: (value: unknown) => { success: boolean } }
+        | undefined;
+      expect(confirm, `${name} should take a confirm argument`).toBeDefined();
+      expect(confirm!.safeParse(true).success, `${name} should accept confirm: true`).toBe(true);
+      expect(confirm!.safeParse(false).success, `${name} should reject confirm: false`).toBe(false);
+      expect(confirm!.safeParse(undefined).success, `${name} should require confirm`).toBe(false);
     }
   });
 
