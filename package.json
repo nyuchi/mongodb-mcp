@@ -20,7 +20,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "agents": "^0.21.0",
     "hono": "^4.13.3",
-    "jose": "^6.2.3",
+    "jose": "^6.2.9",
     "mongodb": "7.5.0",
     "zod": "^4.4.3"
   },
