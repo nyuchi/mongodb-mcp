@@ -517,6 +517,81 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
   );
 
   server.tool(
+    "createIndexes",
+    "Create several indexes on a collection in one command, so the collection is scanned once instead of once per index.",
+    {
+      ...collArg,
+      indexes: jsonArray.describe(
+        'Index specs, each needing key and name, e.g. [{"key": {"email": 1}, "name": "email_1", "unique": true}].',
+      ),
+    },
+    { ...ADD, idempotentHint: true, title: "Create indexes" },
+    async ({ db, collection, indexes }) => {
+      try {
+        const specs = parseExtendedJson<Document[]>(indexes);
+        if (!Array.isArray(specs)) throw new Error("indexes must be an array");
+        const client = await getClient();
+        const result = await client.db(db).command({ createIndexes: collection, indexes: specs });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "dropIndexes",
+    "Drop every index on a collection except the mandatory _id index. Requires confirm: true.",
+    { ...collArg, confirm: z.literal(true) },
+    { ...MUTATE, title: "Drop all indexes" },
+    async ({ db, collection }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ dropIndexes: collection, index: "*" });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "hideIndex",
+    "Hide an index from the query planner without dropping it — the safe way to test whether an index is still needed before dropping it. Reverse with unhideIndex.",
+    { ...collArg, indexName: z.string().min(1) },
+    { ...MUTATE, idempotentHint: true, title: "Hide index" },
+    async ({ db, collection, indexName }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .command({ collMod: collection, index: { name: indexName, hidden: true } });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "unhideIndex",
+    "Return a hidden index to the query planner.",
+    { ...collArg, indexName: z.string().min(1) },
+    { ...ADD, idempotentHint: true, title: "Unhide index" },
+    async ({ db, collection, indexName }) => {
+      try {
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .command({ collMod: collection, index: { name: indexName, hidden: false } });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
     "runCommand",
     "Run an arbitrary database command. Use sparingly.",
     { ...dbArg, command: jsonDoc },
@@ -1000,7 +1075,10 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "List users on a database (usersInfo). Complements createUser / updateUser / dropUser.",
     {
       ...dbArg,
-      user: z.string().optional().describe("Filter to a specific username. Omit for all users on the database."),
+      user: z
+        .string()
+        .optional()
+        .describe("Filter to a specific username. Omit for all users on the database."),
       showPrivileges: z.boolean().default(false),
       showCredentials: z.boolean().default(false),
     },
@@ -1034,7 +1112,9 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     async ({ db, showBuiltinRoles, showPrivileges }) => {
       try {
         const client = await getClient();
-        const result = await client.db(db).command({ rolesInfo: 1, showBuiltinRoles, showPrivileges });
+        const result = await client
+          .db(db)
+          .command({ rolesInfo: 1, showBuiltinRoles, showPrivileges });
         return ok(result);
       } catch (e) {
         return fail(e);
@@ -1080,6 +1160,129 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
       try {
         const client = await getClient();
         const result = await client.db(db).command({ dropRole: role });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "updateRole",
+    "Replace a custom role's privileges and/or inherited roles. Each field supplied replaces the existing value wholesale; omitted fields are left untouched.",
+    {
+      ...dbArg,
+      role: z.string().min(1).describe("Existing custom role to update."),
+      privileges: jsonArray
+        .optional()
+        .describe("Replacement privilege docs. Replaces the entire privilege array."),
+      roles: roleArg.optional().describe("Replacement set of inherited roles."),
+    },
+    { ...MUTATE, title: "Update role" },
+    async ({ db, role, privileges, roles }) => {
+      try {
+        if (privileges === undefined && roles === undefined) {
+          throw new Error("supply privileges, roles, or both");
+        }
+        const cmd: Document = { updateRole: role };
+        if (privileges !== undefined) {
+          const privs = parseExtendedJson<Document[]>(privileges);
+          if (!Array.isArray(privs)) throw new Error("privileges must be an array");
+          cmd.privileges = privs;
+        }
+        if (roles !== undefined) cmd.roles = Array.isArray(roles) ? roles : [roles];
+        const client = await getClient();
+        const result = await client.db(db).command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "grantRolesToRole",
+    "Add inherited roles to an existing custom role.",
+    { ...dbArg, role: z.string().min(1), roles: roleArg.describe("Roles to inherit.") },
+    { ...ADD, title: "Grant roles to role" },
+    async ({ db, role, roles }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          grantRolesToRole: role,
+          roles: Array.isArray(roles) ? roles : [roles],
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "revokeRolesFromRole",
+    "Remove inherited roles from an existing custom role.",
+    { ...dbArg, role: z.string().min(1), roles: roleArg.describe("Roles to stop inheriting.") },
+    { ...MUTATE, title: "Revoke roles from role" },
+    async ({ db, role, roles }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({
+          revokeRolesFromRole: role,
+          roles: Array.isArray(roles) ? roles : [roles],
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "grantPrivilegesToRole",
+    "Add privileges to an existing custom role.",
+    {
+      ...dbArg,
+      role: z.string().min(1),
+      privileges: jsonArray.describe(
+        'Privilege docs to add, e.g. [{"resource": {"db": "app", "collection": ""}, "actions": ["find", "insert"]}].',
+      ),
+    },
+    { ...ADD, title: "Grant privileges to role" },
+    async ({ db, role, privileges }) => {
+      try {
+        const privs = parseExtendedJson<Document[]>(privileges);
+        if (!Array.isArray(privs)) throw new Error("privileges must be an array");
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .command({ grantPrivilegesToRole: role, privileges: privs });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "revokePrivilegesFromRole",
+    "Remove privileges from an existing custom role. Each resource/actions pair must match a granted privilege.",
+    {
+      ...dbArg,
+      role: z.string().min(1),
+      privileges: jsonArray.describe(
+        "Privilege docs to remove, in the same shape they were granted.",
+      ),
+    },
+    { ...MUTATE, title: "Revoke privileges from role" },
+    async ({ db, role, privileges }) => {
+      try {
+        const privs = parseExtendedJson<Document[]>(privileges);
+        if (!Array.isArray(privs)) throw new Error("privileges must be an array");
+        const client = await getClient();
+        const result = await client
+          .db(db)
+          .command({ revokePrivilegesFromRole: role, privileges: privs });
         return ok(result);
       } catch (e) {
         return fail(e);
@@ -1134,7 +1337,10 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     "Validate a collection's internal structure and indexes. Non-destructive by default.",
     {
       ...collArg,
-      full: z.boolean().default(false).describe("Full validation — thorough but slow on large collections."),
+      full: z
+        .boolean()
+        .default(false)
+        .describe("Full validation — thorough but slow on large collections."),
     },
     { ...READ, title: "Validate collection" },
     async ({ db, collection, full }) => {
@@ -1148,13 +1354,93 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
+  server.tool(
+    "dataSize",
+    "Measure the size in bytes of a collection, or of one key range within it. Unlike collStats this reads the documents, so it is slow on large collections.",
+    {
+      ...collArg,
+      keyPattern: jsonDoc
+        .optional()
+        .describe(
+          'Index key pattern the range is expressed in, e.g. {"_id": 1}. Required with min/max.',
+        ),
+      min: jsonDoc.optional().describe("Inclusive lower bound of the key range."),
+      max: jsonDoc.optional().describe("Exclusive upper bound of the key range."),
+      estimate: z
+        .boolean()
+        .default(false)
+        .describe("Use average document size instead of reading every document."),
+    },
+    { ...READ, title: "Data size" },
+    async ({ db, collection, keyPattern, min, max, estimate }) => {
+      try {
+        const cmd: Document = { dataSize: `${db}.${collection}`, estimate };
+        if (keyPattern) cmd.keyPattern = parseExtendedJson<Document>(keyPattern);
+        if (min) cmd.min = parseExtendedJson<Document>(min);
+        if (max) cmd.max = parseExtendedJson<Document>(max);
+        const client = await getClient();
+        const result = await client.db(db).command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "dbHash",
+    "Return an md5 checksum per collection for a database. Comparing hashes across environments shows which collections actually differ.",
+    {
+      ...dbArg,
+      collections: z
+        .array(z.string().min(1))
+        .optional()
+        .describe("Limit the hash to these collections. Omit to hash all of them."),
+    },
+    { ...READ, title: "Database hash" },
+    async ({ db, collections }) => {
+      try {
+        const cmd: Document = { dbHash: 1 };
+        if (collections?.length) cmd.collections = collections;
+        const client = await getClient();
+        const result = await client.db(db).command(cmd);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "convertToCapped",
+    "Convert a collection to a capped collection of a fixed size, dropping the oldest documents once it is full. Requires confirm: true — this rewrites the collection and drops its non-_id indexes.",
+    {
+      ...collArg,
+      size: z.number().int().min(1).describe("Maximum size of the capped collection in bytes."),
+      confirm: z.literal(true),
+    },
+    { ...MUTATE, title: "Convert to capped" },
+    async ({ db, collection, size }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db(db).command({ convertToCapped: collection, size });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   // ---------- monitoring ----------
 
   server.tool(
     "serverStatus",
     "Return server status: connections, opcounters, memory, replication state. Excludes bulky wiredTiger/tcmalloc sections by default.",
     {
-      includeAll: z.boolean().default(false).describe("Include all sections (wiredTiger, tcmalloc, locks). Output can be very large."),
+      includeAll: z
+        .boolean()
+        .default(false)
+        .describe("Include all sections (wiredTiger, tcmalloc, locks). Output can be very large."),
     },
     { ...READ, title: "Server status" },
     async ({ includeAll }) => {
@@ -1193,10 +1479,120 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
   );
 
   server.tool(
+    "buildInfo",
+    "Return the MongoDB server version and build details. Use this to check whether a feature or command is available on the cluster; hostInfo covers the OS and hardware instead.",
+    {},
+    { ...READ, title: "Build info" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ buildInfo: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "connectionStatus",
+    "Show which user the MCP is authenticated as and the roles and privileges that user holds. Start here when a tool returns 'not authorized'.",
+    {
+      showPrivileges: z
+        .boolean()
+        .default(true)
+        .describe("Include the resolved privilege list, not just role names."),
+    },
+    { ...READ, title: "Connection status" },
+    async ({ showPrivileges }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ connectionStatus: 1, showPrivileges });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "listCommands",
+    "List the database commands this cluster accepts. Useful for checking whether a command exists before calling runCommand, since managed tiers disable some of them.",
+    {},
+    { ...READ, title: "List commands" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ listCommands: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "getLog",
+    "Fetch recent in-memory server log lines. 'startupWarnings' surfaces configuration problems; 'global' is the general ring buffer.",
+    {
+      log: z
+        .enum(["global", "startupWarnings", "rs"])
+        .default("global")
+        .describe("Which in-memory log to read."),
+    },
+    { ...READ, title: "Get server log" },
+    async ({ log }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ getLog: log });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "top",
+    "Per-collection time spent on reads and writes since the last restart. Points at which collections carry the load. Not available on sharded clusters via mongos.",
+    {},
+    { ...READ, title: "Collection usage (top)" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ top: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "connPoolStats",
+    "Connection-pool statistics for the server's outgoing connections. Useful when diagnosing connection exhaustion.",
+    {},
+    { ...READ, title: "Connection pool stats" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ connPoolStats: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
     "currentOp",
     "Show currently-running operations. Useful for diagnosing long-running queries or locks.",
     {
-      filter: jsonDoc.optional().describe('Optional filter, e.g. {"active": true} or {"op": "query", "secs_running": {"$gt": 5}}.'),
+      filter: jsonDoc
+        .optional()
+        .describe(
+          'Optional filter, e.g. {"active": true} or {"op": "query", "secs_running": {"$gt": 5}}.',
+        ),
     },
     { ...READ, title: "Current operations" },
     async ({ filter }) => {
@@ -1228,6 +1624,97 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
+  // ---------- replication & sharding ----------
+
+  server.tool(
+    "replSetGetStatus",
+    "Replica set health: member states, election term, and replication lag via each member's optime.",
+    {},
+    { ...READ, title: "Replica set status" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ replSetGetStatus: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "listShards",
+    "List the shards in a sharded cluster. Errors on a plain replica set, which has no shards.",
+    {},
+    { ...READ, title: "List shards" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ listShards: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "balancerStatus",
+    "Report whether the sharded-cluster balancer is enabled and currently running.",
+    {},
+    { ...READ, title: "Balancer status" },
+    async () => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ balancerStatus: 1 });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "enableSharding",
+    "Enable sharding on a database. Requires confirm: true — a database cannot be un-sharded afterwards.",
+    { ...dbArg, confirm: z.literal(true) },
+    { ...MUTATE, title: "Enable sharding" },
+    async ({ db }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({ enableSharding: db });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.tool(
+    "shardCollection",
+    "Shard a collection on a shard key. Requires confirm: true — the choice of shard key is permanent and drives every later query's performance.",
+    {
+      ...collArg,
+      key: jsonDoc.describe('Shard key, e.g. {"tenantId": 1} or {"userId": "hashed"}.'),
+      unique: z.boolean().default(false).describe("Enforce uniqueness on the shard key."),
+      confirm: z.literal(true),
+    },
+    { ...MUTATE, title: "Shard collection" },
+    async ({ db, collection, key, unique }) => {
+      try {
+        const client = await getClient();
+        const result = await client.db("admin").command({
+          shardCollection: `${db}.${collection}`,
+          key: parseExtendedJson<Document>(key),
+          unique,
+        });
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   // ---------- profiling ----------
 
   server.tool(
@@ -1252,8 +1739,18 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     {
       ...dbArg,
       level: z.number().int().min(0).max(2).describe("0 = off, 1 = slow ops, 2 = all ops."),
-      slowms: z.number().int().min(-1).optional().describe("Threshold in milliseconds for level 1 (default 100)."),
-      sampleRate: z.number().min(0).max(1).optional().describe("Fraction of slow ops to profile, 0.0–1.0."),
+      slowms: z
+        .number()
+        .int()
+        .min(-1)
+        .optional()
+        .describe("Threshold in milliseconds for level 1 (default 100)."),
+      sampleRate: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe("Fraction of slow ops to profile, 0.0–1.0."),
     },
     { ...MUTATE, title: "Set profiling level" },
     async ({ db, level, slowms, sampleRate }) => {
