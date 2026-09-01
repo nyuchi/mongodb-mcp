@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { AnyBulkWriteOperation, Document, MongoClient } from "mongodb";
 import { z } from "zod";
 import { parseExtendedJson, stringifyEJson } from "./ejson";
@@ -40,7 +40,7 @@ export function permissionHint(err: unknown): string | null {
   if (codeName === "AuthenticationFailed" || code === 18) {
     return "AuthenticationFailed: the MONGODB_URI credentials are wrong or the user does not exist on the auth database. Verify the username/password and the authSource in the connection string.";
   }
-  return "Unauthorized: the MongoDB user in MONGODB_URI lacks privileges for this operation. Grant a role that covers it on the target database, e.g. `readWrite` (CRUD + createIndex/dropIndex), `dbAdmin` (DDL, profiler, views), or `dbOwner` (both). For cluster-wide access use `readWriteAnyDatabase` / `dbAdminAnyDatabase`. User management tools additionally require `userAdmin` on the target db. See README → 'MongoDB user role requirements'.";
+  return "Unauthorized: the MongoDB user in MONGODB_URI lacks privileges for this operation. Grant a role that covers it on the target database, e.g. `readWrite` (CRUD + createIndex/dropIndex), `dbAdmin` (DDL, profiler, views), or `dbOwner` (both). For cluster-wide access use `readWriteAnyDatabase` / `dbAdminAnyDatabase`; monitoring and sharding tools need `clusterMonitor` / `clusterManager` on `admin`. Do not grant `userAdmin` to work around this — this server deliberately exposes no identity management. See README → 'MongoDB user role requirements'.";
 }
 
 export function fail(err: unknown): ToolResult {
@@ -87,10 +87,75 @@ const MUTATE = {
   openWorldHint: false,
 } as const;
 
+// Identity management is deliberately not exposed. MongoDB grants user and role
+// administration through `userAdmin`, which cannot be narrowed to "may only
+// touch these users" — a credential holding it can mint a root user and
+// escalate past every other limit this server places on itself. So the tools
+// are absent and `runCommand` refuses the same commands; otherwise it would be
+// a one-line bypass of their removal. Manage identities in the Atlas UI or a
+// separately-credentialled admin path instead.
+const IDENTITY_COMMANDS = new Set(
+  [
+    "createUser",
+    "updateUser",
+    "dropUser",
+    "dropAllUsersFromDatabase",
+    "grantRolesToUser",
+    "revokeRolesFromUser",
+    "usersInfo",
+    "createRole",
+    "updateRole",
+    "dropRole",
+    "dropAllRolesFromDatabase",
+    "grantRolesToRole",
+    "revokeRolesFromRole",
+    "grantPrivilegesToRole",
+    "revokePrivilegesFromRole",
+    "rolesInfo",
+    "invalidateUserCache",
+  ].map((name) => name.toLowerCase()),
+);
+
+export function assertNotIdentityCommand(command: Document): void {
+  for (const key of Object.keys(command)) {
+    if (IDENTITY_COMMANDS.has(key.toLowerCase())) {
+      throw new Error(
+        `Refused: '${key}' is a user/role administration command. This server does not expose identity management, because the userAdmin privilege it requires cannot be scoped and would allow privilege escalation. Manage users and roles in the Atlas UI instead.`,
+      );
+    }
+  }
+}
+
+type ToolHints = {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+};
+
 export function registerMongoTools(server: McpServer, getClient: () => Promise<MongoClient>) {
+  // SDK v2 takes one config object and a schema rather than v1's positional
+  // shape. Funnelling every registration through here keeps the 60-odd call
+  // sites reading as `name, description, args, hints, handler` and puts the
+  // z.object() wrapping in one place.
+  const tool = <Shape extends z.ZodRawShape>(
+    name: string,
+    description: string,
+    shape: Shape,
+    { title, ...behaviour }: ToolHints,
+    handler: (args: z.infer<z.ZodObject<Shape>>) => Promise<ToolResult>,
+  ) => {
+    server.registerTool(
+      name,
+      { title, description, inputSchema: z.object(shape), annotations: behaviour },
+      handler as never,
+    );
+  };
+
   // ---------- discovery ----------
 
-  server.tool(
+  tool(
     "listDatabases",
     "List databases on the cluster with their size on disk.",
     {},
@@ -106,7 +171,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "listCollections",
     "List collections in a database.",
     { ...dbArg },
@@ -122,7 +187,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dbStats",
     "Return db.stats() for a database.",
     { ...dbArg },
@@ -138,7 +203,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "collStats",
     "Return collStats for a collection (via $collStats aggregation).",
     { ...collArg },
@@ -160,7 +225,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- reads ----------
 
-  server.tool(
+  tool(
     "find",
     "Run find() against a collection. Returns up to `limit` documents.",
     {
@@ -192,7 +257,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "findOne",
     "Return a single document.",
     {
@@ -217,7 +282,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "count",
     "Count documents matching a filter (countDocuments).",
     { ...collArg, filter: jsonDoc.optional() },
@@ -236,7 +301,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "aggregate",
     "Run an aggregation pipeline. Note: $out / $merge stages write to a collection.",
     {
@@ -264,7 +329,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- writes ----------
 
-  server.tool(
+  tool(
     "insertOne",
     "Insert a single document.",
     { ...collArg, document: jsonDoc },
@@ -283,7 +348,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "insertMany",
     "Insert multiple documents.",
     { ...collArg, documents: jsonArray, ordered: z.boolean().default(true) },
@@ -301,7 +366,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "updateOne",
     "Update a single document.",
     {
@@ -327,7 +392,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "updateMany",
     "Update many documents.",
     {
@@ -353,7 +418,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "deleteOne",
     "Delete a single document matching the filter.",
     { ...collArg, filter: jsonDoc },
@@ -372,7 +437,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "deleteMany",
     "Delete documents matching the filter. Refuses an empty filter; pass {} explicitly to wipe the collection.",
     {
@@ -404,7 +469,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- admin / DDL ----------
 
-  server.tool(
+  tool(
     "createCollection",
     "Create a new collection.",
     { ...collArg, options: jsonDoc.optional() },
@@ -422,7 +487,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dropCollection",
     "Drop a collection. Requires confirm: true.",
     { ...collArg, confirm: z.literal(true) },
@@ -438,7 +503,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "renameCollection",
     "Rename a collection.",
     {
@@ -458,7 +523,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "createIndex",
     "Create an index.",
     {
@@ -484,7 +549,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "listIndexes",
     "List indexes on a collection.",
     { ...collArg },
@@ -500,7 +565,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dropIndex",
     "Drop an index by name.",
     { ...collArg, indexName: z.string().min(1) },
@@ -516,7 +581,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "createIndexes",
     "Create several indexes on a collection in one command, so the collection is scanned once instead of once per index.",
     {
@@ -539,7 +604,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dropIndexes",
     "Drop every index on a collection except the mandatory _id index. Requires confirm: true.",
     { ...collArg, confirm: z.literal(true) },
@@ -555,7 +620,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "hideIndex",
     "Hide an index from the query planner without dropping it — the safe way to test whether an index is still needed before dropping it. Reverse with unhideIndex.",
     { ...collArg, indexName: z.string().min(1) },
@@ -573,7 +638,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "unhideIndex",
     "Return a hidden index to the query planner.",
     { ...collArg, indexName: z.string().min(1) },
@@ -591,15 +656,17 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "runCommand",
-    "Run an arbitrary database command. Use sparingly.",
+    "Run an arbitrary database command. Use sparingly. User and role administration commands are refused — see the note on identity management in the README.",
     { ...dbArg, command: jsonDoc },
     { ...MUTATE, openWorldHint: true, title: "Run database command" },
     async ({ db, command }) => {
       try {
+        const cmd = parseExtendedJson<Document>(command);
+        assertNotIdentityCommand(cmd);
         const client = await getClient();
-        const result = await client.db(db).command(parseExtendedJson<Document>(command));
+        const result = await client.db(db).command(cmd);
         return ok(result);
       } catch (e) {
         return fail(e);
@@ -607,7 +674,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool("ping", "Ping the cluster.", {}, { ...READ, title: "Ping cluster" }, async () => {
+  tool("ping", "Ping the cluster.", {}, { ...READ, title: "Ping cluster" }, async () => {
     try {
       const client = await getClient();
       const result = await client.db("admin").command({ ping: 1 });
@@ -619,7 +686,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- read helpers ----------
 
-  server.tool(
+  tool(
     "distinct",
     "Return the distinct values for a field across a collection.",
     {
@@ -642,7 +709,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "estimatedDocumentCount",
     "Fast collection-cardinality estimate from collection metadata (no filter).",
     { ...collArg },
@@ -658,7 +725,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "explain",
     "Run db.command({ explain: <command>, verbosity }) to get a query plan.",
     {
@@ -686,7 +753,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- atomic write helpers ----------
 
-  server.tool(
+  tool(
     "replaceOne",
     "Replace a single document matching the filter.",
     {
@@ -714,7 +781,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "findOneAndUpdate",
     "Atomically update one document and return it.",
     {
@@ -751,7 +818,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "findOneAndReplace",
     "Atomically replace one document and return it.",
     {
@@ -788,7 +855,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "findOneAndDelete",
     "Atomically delete one document and return it.",
     {
@@ -816,7 +883,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "bulkWrite",
     "Run a bulkWrite() with insertOne/updateOne/updateMany/replaceOne/deleteOne/deleteMany operations.",
     {
@@ -845,7 +912,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- views & Atlas Search ----------
 
-  server.tool(
+  tool(
     "createView",
     "Create a read-only view backed by an aggregation pipeline on a source collection.",
     {
@@ -868,7 +935,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "listSearchIndexes",
     "List Atlas Search indexes on a collection.",
     { ...collArg, name: z.string().optional().describe("Filter to a single index name.") },
@@ -886,7 +953,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "createSearchIndex",
     "Create an Atlas Search index. Requires an Atlas cluster.",
     {
@@ -914,7 +981,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "updateSearchIndex",
     "Update an Atlas Search index definition.",
     {
@@ -937,7 +1004,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dropSearchIndex",
     "Drop an Atlas Search index by name.",
     { ...collArg, name: z.string().min(1) },
@@ -953,346 +1020,9 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  // ---------- user / role management ----------
-  // These wrap the underlying database commands. Caller must be authenticated with
-  // sufficient privileges on the target database (typically userAdmin or root).
-
-  const roleArg = z
-    .union([z.string(), z.array(z.union([z.string(), z.record(z.string(), z.unknown())]))])
-    .describe(
-      'Role name or array of role specs. e.g. ["read"] or [{"role": "readWrite", "db": "app"}].',
-    );
-
-  server.tool(
-    "createUser",
-    "Create a database user (db.command({ createUser, pwd, roles })).",
-    {
-      ...dbArg,
-      user: z.string().min(1).describe("Username to create."),
-      pwd: z.string().min(1).describe("Password for the new user."),
-      roles: roleArg,
-      customData: jsonDoc.optional(),
-    },
-    { ...ADD, title: "Create user" },
-    async ({ db, user, pwd, roles, customData }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({
-          createUser: user,
-          pwd,
-          roles: Array.isArray(roles) ? roles : [roles],
-          ...(customData ? { customData: parseExtendedJson<Document>(customData) } : {}),
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "updateUser",
-    "Update a database user. Any of pwd / roles / customData can be changed.",
-    {
-      ...dbArg,
-      user: z.string().min(1),
-      pwd: z.string().optional(),
-      roles: roleArg.optional(),
-      customData: jsonDoc.optional(),
-    },
-    { ...MUTATE, title: "Update user" },
-    async ({ db, user, pwd, roles, customData }) => {
-      try {
-        const client = await getClient();
-        const cmd: Document = { updateUser: user };
-        if (pwd !== undefined) cmd.pwd = pwd;
-        if (roles !== undefined) cmd.roles = Array.isArray(roles) ? roles : [roles];
-        if (customData !== undefined) cmd.customData = parseExtendedJson<Document>(customData);
-        const result = await client.db(db).command(cmd);
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "dropUser",
-    "Drop a database user. Requires confirm: true.",
-    { ...dbArg, user: z.string().min(1), confirm: z.literal(true) },
-    { ...MUTATE, title: "Drop user" },
-    async ({ db, user }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({ dropUser: user });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "grantRolesToUser",
-    "Grant roles to an existing user.",
-    { ...dbArg, user: z.string().min(1), roles: roleArg },
-    { ...ADD, title: "Grant roles to user" },
-    async ({ db, user, roles }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({
-          grantRolesToUser: user,
-          roles: Array.isArray(roles) ? roles : [roles],
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "revokeRolesFromUser",
-    "Revoke roles from an existing user.",
-    { ...dbArg, user: z.string().min(1), roles: roleArg },
-    { ...MUTATE, title: "Revoke roles from user" },
-    async ({ db, user, roles }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({
-          revokeRolesFromUser: user,
-          roles: Array.isArray(roles) ? roles : [roles],
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "listUsers",
-    "List users on a database (usersInfo). Complements createUser / updateUser / dropUser.",
-    {
-      ...dbArg,
-      user: z
-        .string()
-        .optional()
-        .describe("Filter to a specific username. Omit for all users on the database."),
-      showPrivileges: z.boolean().default(false),
-      showCredentials: z.boolean().default(false),
-    },
-    { ...READ, title: "List users" },
-    async ({ db, user, showPrivileges, showCredentials }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({
-          usersInfo: user ? { user, db } : 1,
-          showPrivileges,
-          showCredentials,
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  // ---------- role management ----------
-
-  server.tool(
-    "listRoles",
-    "List roles defined on a database (rolesInfo). Use showBuiltinRoles to include built-ins like read / readWrite / dbAdmin.",
-    {
-      ...dbArg,
-      showBuiltinRoles: z.boolean().default(false),
-      showPrivileges: z.boolean().default(false),
-    },
-    { ...READ, title: "List roles" },
-    async ({ db, showBuiltinRoles, showPrivileges }) => {
-      try {
-        const client = await getClient();
-        const result = await client
-          .db(db)
-          .command({ rolesInfo: 1, showBuiltinRoles, showPrivileges });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "createRole",
-    "Create a custom role with specified privileges and inherited roles.",
-    {
-      ...dbArg,
-      role: z.string().min(1).describe("Role name."),
-      privileges: jsonArray.describe(
-        'Array of privilege docs, e.g. [{"resource": {"db": "app", "collection": ""}, "actions": ["find", "insert"]}].',
-      ),
-      roles: roleArg.describe("Roles this role inherits from."),
-    },
-    { ...ADD, title: "Create role" },
-    async ({ db, role, privileges, roles }) => {
-      try {
-        const privs = parseExtendedJson<Document[]>(privileges);
-        if (!Array.isArray(privs)) throw new Error("privileges must be an array");
-        const client = await getClient();
-        const result = await client.db(db).command({
-          createRole: role,
-          privileges: privs,
-          roles: Array.isArray(roles) ? roles : [roles],
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "dropRole",
-    "Drop a custom role from a database. Requires confirm: true.",
-    { ...dbArg, role: z.string().min(1), confirm: z.literal(true) },
-    { ...MUTATE, title: "Drop role" },
-    async ({ db, role }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({ dropRole: role });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "updateRole",
-    "Replace a custom role's privileges and/or inherited roles. Each field supplied replaces the existing value wholesale; omitted fields are left untouched.",
-    {
-      ...dbArg,
-      role: z.string().min(1).describe("Existing custom role to update."),
-      privileges: jsonArray
-        .optional()
-        .describe("Replacement privilege docs. Replaces the entire privilege array."),
-      roles: roleArg.optional().describe("Replacement set of inherited roles."),
-    },
-    { ...MUTATE, title: "Update role" },
-    async ({ db, role, privileges, roles }) => {
-      try {
-        if (privileges === undefined && roles === undefined) {
-          throw new Error("supply privileges, roles, or both");
-        }
-        const cmd: Document = { updateRole: role };
-        if (privileges !== undefined) {
-          const privs = parseExtendedJson<Document[]>(privileges);
-          if (!Array.isArray(privs)) throw new Error("privileges must be an array");
-          cmd.privileges = privs;
-        }
-        if (roles !== undefined) cmd.roles = Array.isArray(roles) ? roles : [roles];
-        const client = await getClient();
-        const result = await client.db(db).command(cmd);
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "grantRolesToRole",
-    "Add inherited roles to an existing custom role.",
-    { ...dbArg, role: z.string().min(1), roles: roleArg.describe("Roles to inherit.") },
-    { ...ADD, title: "Grant roles to role" },
-    async ({ db, role, roles }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({
-          grantRolesToRole: role,
-          roles: Array.isArray(roles) ? roles : [roles],
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "revokeRolesFromRole",
-    "Remove inherited roles from an existing custom role.",
-    { ...dbArg, role: z.string().min(1), roles: roleArg.describe("Roles to stop inheriting.") },
-    { ...MUTATE, title: "Revoke roles from role" },
-    async ({ db, role, roles }) => {
-      try {
-        const client = await getClient();
-        const result = await client.db(db).command({
-          revokeRolesFromRole: role,
-          roles: Array.isArray(roles) ? roles : [roles],
-        });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "grantPrivilegesToRole",
-    "Add privileges to an existing custom role.",
-    {
-      ...dbArg,
-      role: z.string().min(1),
-      privileges: jsonArray.describe(
-        'Privilege docs to add, e.g. [{"resource": {"db": "app", "collection": ""}, "actions": ["find", "insert"]}].',
-      ),
-    },
-    { ...ADD, title: "Grant privileges to role" },
-    async ({ db, role, privileges }) => {
-      try {
-        const privs = parseExtendedJson<Document[]>(privileges);
-        if (!Array.isArray(privs)) throw new Error("privileges must be an array");
-        const client = await getClient();
-        const result = await client
-          .db(db)
-          .command({ grantPrivilegesToRole: role, privileges: privs });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
-  server.tool(
-    "revokePrivilegesFromRole",
-    "Remove privileges from an existing custom role. Each resource/actions pair must match a granted privilege.",
-    {
-      ...dbArg,
-      role: z.string().min(1),
-      privileges: jsonArray.describe(
-        "Privilege docs to remove, in the same shape they were granted.",
-      ),
-    },
-    { ...MUTATE, title: "Revoke privileges from role" },
-    async ({ db, role, privileges }) => {
-      try {
-        const privs = parseExtendedJson<Document[]>(privileges);
-        if (!Array.isArray(privs)) throw new Error("privileges must be an array");
-        const client = await getClient();
-        const result = await client
-          .db(db)
-          .command({ revokePrivilegesFromRole: role, privileges: privs });
-        return ok(result);
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
   // ---------- database admin ----------
 
-  server.tool(
+  tool(
     "dropDatabase",
     "Drop an entire database and all its collections. Requires confirm: true. Irreversible.",
     { ...dbArg, confirm: z.literal(true) },
@@ -1308,7 +1038,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "collMod",
     "Modify collection options: JSON Schema validator, validationAction, changeStreamPreAndPostImages, or hide/unhide an index.",
     {
@@ -1332,7 +1062,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "validate",
     "Validate a collection's internal structure and indexes. Non-destructive by default.",
     {
@@ -1354,7 +1084,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dataSize",
     "Measure the size in bytes of a collection, or of one key range within it. Unlike collStats this reads the documents, so it is slow on large collections.",
     {
@@ -1387,7 +1117,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "dbHash",
     "Return an md5 checksum per collection for a database. Comparing hashes across environments shows which collections actually differ.",
     {
@@ -1411,7 +1141,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "convertToCapped",
     "Convert a collection to a capped collection of a fixed size, dropping the oldest documents once it is full. Requires confirm: true — this rewrites the collection and drops its non-_id indexes.",
     {
@@ -1433,7 +1163,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- monitoring ----------
 
-  server.tool(
+  tool(
     "serverStatus",
     "Return server status: connections, opcounters, memory, replication state. Excludes bulky wiredTiger/tcmalloc sections by default.",
     {
@@ -1462,7 +1192,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "hostInfo",
     "Return MongoDB version, OS, and hardware information.",
     {},
@@ -1478,7 +1208,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "buildInfo",
     "Return the MongoDB server version and build details. Use this to check whether a feature or command is available on the cluster; hostInfo covers the OS and hardware instead.",
     {},
@@ -1494,7 +1224,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "connectionStatus",
     "Show which user the MCP is authenticated as and the roles and privileges that user holds. Start here when a tool returns 'not authorized'.",
     {
@@ -1515,7 +1245,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "listCommands",
     "List the database commands this cluster accepts. Useful for checking whether a command exists before calling runCommand, since managed tiers disable some of them.",
     {},
@@ -1531,7 +1261,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "getLog",
     "Fetch recent in-memory server log lines. 'startupWarnings' surfaces configuration problems; 'global' is the general ring buffer.",
     {
@@ -1552,7 +1282,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "top",
     "Per-collection time spent on reads and writes since the last restart. Points at which collections carry the load. Not available on sharded clusters via mongos.",
     {},
@@ -1568,7 +1298,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "connPoolStats",
     "Connection-pool statistics for the server's outgoing connections. Useful when diagnosing connection exhaustion.",
     {},
@@ -1584,7 +1314,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "currentOp",
     "Show currently-running operations. Useful for diagnosing long-running queries or locks.",
     {
@@ -1608,7 +1338,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "killOp",
     "Kill a running operation by its opId (from currentOp). Use with caution — may leave write operations partially applied.",
     { opId: z.number().int().describe("Operation id from currentOp.inprog[].opid.") },
@@ -1626,7 +1356,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- replication & sharding ----------
 
-  server.tool(
+  tool(
     "replSetGetStatus",
     "Replica set health: member states, election term, and replication lag via each member's optime.",
     {},
@@ -1642,7 +1372,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "listShards",
     "List the shards in a sharded cluster. Errors on a plain replica set, which has no shards.",
     {},
@@ -1658,7 +1388,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "balancerStatus",
     "Report whether the sharded-cluster balancer is enabled and currently running.",
     {},
@@ -1674,7 +1404,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "enableSharding",
     "Enable sharding on a database. Requires confirm: true — a database cannot be un-sharded afterwards.",
     { ...dbArg, confirm: z.literal(true) },
@@ -1690,7 +1420,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "shardCollection",
     "Shard a collection on a shard key. Requires confirm: true — the choice of shard key is permanent and drives every later query's performance.",
     {
@@ -1717,7 +1447,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
 
   // ---------- profiling ----------
 
-  server.tool(
+  tool(
     "getProfilingStatus",
     "Return the current slow-query profiling level and slowms threshold for a database.",
     { ...dbArg },
@@ -1733,7 +1463,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "setProfilingLevel",
     "Set slow-query profiling: 0 = off, 1 = slow ops (above slowms), 2 = all ops.",
     {
@@ -1767,7 +1497,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "getProfilingData",
     "Fetch recent entries from system.profile (slow-query log). Requires profiling level ≥ 1.",
     {
@@ -1791,7 +1521,7 @@ export function registerMongoTools(server: McpServer, getClient: () => Promise<M
     },
   );
 
-  server.tool(
+  tool(
     "indexStats",
     "Return $indexStats for a collection — per-index usage counts since the last mongod restart.",
     { ...collArg },

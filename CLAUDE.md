@@ -20,31 +20,32 @@ lives with it. This repo is the MongoDB MCP only.
 `/token`, `/register` and gates `/mcp`. `AuthkitHandler` (`src/authkit-handler.ts`)
 runs the WorkOS redirect/callback dance — it sends the user to WorkOS, then on
 `/callback` exchanges the code (PKCE), enforces the org allowlist + the granted
-permission scope, and completes the OAuth grant. Authorized sessions reach
-`MongoMcp` (a Durable Object subclass of `McpAgent`) which caches one
-`MongoClient` per session and registers all tools from `src/tools.ts`.
+permission scope, and completes the OAuth grant. Authorized requests reach a
+**stateless** `/mcp` handler: `createMcpHandler` (`agents/mcp/server`, MCP SDK
+v2) builds a fresh `McpServer` per request and registers all tools from
+`src/tools.ts`.
 
-`McpAgent` is deprecated as of `agents@0.21` in favour of a stateless
-`createMcpHandler` factory on MCP SDK v2. We stay on `McpAgent` (and therefore
-on `@modelcontextprotocol/sdk` v1 for the `McpServer` object) because the
-stateless handler drops the Durable Object, and with it the per-session
-`MongoClient` cache. Migrating needs a connection-reuse plan first.
+There is no Durable Object. The `MongoClient` is cached at **isolate** scope in
+`src/index.ts` instead of per session, so the driver's pool still amortises
+across requests that land on the same isolate. The client is built inside the
+request path (workerd forbids sockets at module scope) and the cached promise
+is cleared on a failed connect so one bad attempt cannot poison the isolate.
 
 ## Where things live
 
-| Path                         | Purpose                                                              |
-| ---------------------------- | -------------------------------------------------------------------- |
-| `src/index.ts`               | `OAuthProvider` wiring + the `MongoMcp` DO; serves `/mcp`.           |
-| `src/authkit-handler.ts`     | WorkOS OAuth flow: `/authorize`, `/callback`, org + permission gate. |
-| `src/workers-oauth-utils.ts` | OAuth approval-dialog + client-approval cookie helpers.              |
-| `src/tools.ts`               | All MCP tool definitions + annotations + `permissionHint` / `fail`.  |
-| `src/icon.ts`                | Inline MCP Tools logo SVG served at `/icon.svg`.                     |
-| `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                    |
-| `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.             |
-| `src/landing.ts`             | Static landing page served at `/`.                                   |
-| `test/`                      | Vitest specs (run inside `workerd` via the Cloudflare pool).         |
-| `wrangler.jsonc`             | Production worker config; DO + `OAUTH_KV` bindings live here.        |
-| `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here.     |
+| Path                         | Purpose                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/index.ts`               | `OAuthProvider` wiring + stateless `/mcp` handler; isolate-scoped `MongoClient` cache.           |
+| `src/authkit-handler.ts`     | WorkOS OAuth flow: `/authorize`, `/callback`, org + permission gate.                             |
+| `src/workers-oauth-utils.ts` | OAuth approval-dialog + client-approval cookie helpers.                                          |
+| `src/tools.ts`               | All MCP tool definitions + annotations + `permissionHint` / `fail` / `assertNotIdentityCommand`. |
+| `src/icon.ts`                | Inline MCP Tools logo SVG served at `/icon.svg`.                                                 |
+| `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                                                |
+| `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.                                         |
+| `src/landing.ts`             | Static landing page served at `/`.                                                               |
+| `test/`                      | Vitest specs (run inside `workerd` via the Cloudflare pool).                                     |
+| `wrangler.jsonc`             | Production worker config; `OAUTH_KV` binding lives here.                                         |
+| `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here.                                 |
 
 ## Commands
 
@@ -66,9 +67,11 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
   errors with a hint. New tools must use them.
 - **Inputs go through `parseExtendedJson`** so callers can pass `$oid`, `$date`,
   etc. Outputs go through `stringifyEJson` (which also truncates at 256 KiB).
-- **Destructive ops gate on `confirm`.** `dropCollection` and `dropUser`
+- **Irreversible ops gate on `confirm`.** `dropCollection`, `dropDatabase`,
+  `dropIndexes`, `convertToCapped`, `enableSharding` and `shardCollection`
   require `confirm: z.literal(true)`. `deleteMany` requires `confirm: true`
-  only when the filter is empty / matches everything.
+  only when the filter is empty / matches everything. A test asserts the gate
+  holds for every tool on that list.
 - **`tools.ts` must not value-import from `mongodb`.** Type-only imports
   (`import type { … } from "mongodb"`) are fine and get erased — value
   imports of the driver crash the vitest workerd loader. Use `./ejson`
@@ -80,14 +83,21 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
   `openWorldHint`) via the `READ` / `ADD` / `MUTATE` presets so clients can
   auto-approve safe reads and warn before destructive ops. The test suite
   asserts every tool has them.
+- **Never add user or role management tools.** They need `userAdmin`, which
+  cannot be scoped — a credential that can create a user can create `root`,
+  which defeats every other guard here. `runCommand` enforces the same rule via
+  `assertNotIdentityCommand`; extend `IDENTITY_COMMANDS` if MongoDB adds to the
+  family. See README → 'Why there is no user or role management'.
 - **No comments unless they explain _why_.** This repo follows the global
   rule — prefer expressive names over narration.
 
 ## Adding a new MCP tool
 
-1. In `src/tools.ts`, call
-   `server.tool(name, description, { …zodSchema }, annotations, async args => { … })`
-   inside `registerMongoTools`. Reuse `dbArg`/`collArg`/`jsonDoc`/`jsonArray` and
+1. In `src/tools.ts`, call the local
+   `tool(name, description, { …zodSchema }, annotations, async args => { … })`
+   helper inside `registerMongoTools` — it wraps SDK v2's `registerTool`, lifts
+   `title` out of the annotations and does the `z.object()` wrapping.
+   Never call `server.registerTool` directly. Reuse `dbArg`/`collArg`/`jsonDoc`/`jsonArray` and
    one of the `READ` / `ADD` / `MUTATE` annotation presets (add `title:`, plus
    `idempotentHint`/`openWorldHint` overrides where they differ).
 2. The handler body: `try { const client = await getClient(); … return ok(result); } catch (e) { return fail(e); }`.
@@ -116,16 +126,19 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
 - MongoDB gate: the `MONGODB_URI` user must hold the privilege for whichever
   tool is invoked. See the role table in the README. `permissionHint()`
   detects codes 13/18/31/33 and `"not authorized on"` messages, then appends
-  a role-grant pointer to the error response.
+  a role-grant pointer to the error response. That credential must **never**
+  hold `userAdmin` / `userAdminAnyDatabase` / `root`: nothing here needs them
+  and they cannot be scoped, so granting one would let any caller escalate.
 
 ## Workers-runtime gotchas
 
 - `mongodb` driver only runs because `nodejs_compat` is enabled. It opens
   TCP sockets, which is allowed _only inside a request handler_ — never at
   module scope. The `getClient()` helper enforces this.
-- Durable Object instances are reused across many requests in one MCP
-  session, which is why we cache the `MongoClient`. Don't move it out of the
-  DO without a plan for connection pooling on Workers.
+- The `/mcp` endpoint is stateless — no Durable Object, no server-side
+  session. Connection reuse comes from caching the `MongoClient` at isolate
+  scope in `src/index.ts`; keep that cache lazily created inside the request
+  path, never at module scope.
 - Tests run inside `workerd` via `@cloudflare/vitest-pool-workers`. Modules
   that value-import CommonJS-only packages (notably the `mongodb` driver)
   blow up at import time — keep them out of any file the tests transitively

@@ -1,12 +1,14 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { MongoClient } from "mongodb";
+import type { ZodObject, ZodRawShape } from "zod";
 import { describe, expect, it } from "vitest";
-import { fail, permissionHint, registerMongoTools } from "../src/tools";
+import { assertNotIdentityCommand, fail, permissionHint, registerMongoTools } from "../src/tools";
 
 type Registered = {
   name: string;
+  title: string;
   description: string;
-  schema: Record<string, unknown>;
+  shape: ZodRawShape;
   annotations: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<{
     content: { type: "text"; text: string }[];
@@ -14,20 +16,31 @@ type Registered = {
   }>;
 };
 
-// Minimal stub that captures every server.tool() call. We don't need a real
-// McpServer — only the surface registerMongoTools touches. Tools register with
-// the (name, description, schema, annotations, handler) overload.
+// Minimal stub that captures every registerTool() call. We don't need a real
+// McpServer — only the surface registerMongoTools touches. SDK v2 registers
+// with (name, config, handler), the config carrying title, description,
+// inputSchema and annotations.
 function makeFakeServer(): { server: McpServer; tools: Map<string, Registered> } {
   const tools = new Map<string, Registered>();
   const server = {
-    tool(
+    registerTool(
       name: string,
-      description: string,
-      schema: Record<string, unknown>,
-      annotations: Record<string, unknown>,
+      config: {
+        title: string;
+        description: string;
+        inputSchema: ZodObject<ZodRawShape>;
+        annotations: Record<string, unknown>;
+      },
       handler: Registered["handler"],
     ) {
-      tools.set(name, { name, description, schema, annotations, handler });
+      tools.set(name, {
+        name,
+        title: config.title,
+        description: config.description,
+        shape: config.inputSchema.shape,
+        annotations: config.annotations,
+        handler,
+      });
       return {} as unknown;
     },
   } as unknown as McpServer;
@@ -112,6 +125,30 @@ describe("fail()", () => {
   });
 });
 
+describe("assertNotIdentityCommand", () => {
+  it("throws for user and role administration commands, whatever the casing", () => {
+    for (const command of [
+      { createUser: "x" },
+      { dropAllUsersFromDatabase: 1 },
+      { revokePrivilegesFromRole: "r", privileges: [] },
+      { RolesInfo: 1 },
+      { invalidateUserCache: 1 },
+    ]) {
+      expect(() => assertNotIdentityCommand(command), Object.keys(command)[0]).toThrow(/Refused/);
+    }
+  });
+
+  it("rejects an identity command hidden behind another key", () => {
+    expect(() => assertNotIdentityCommand({ ping: 1, createUser: "mallory" })).toThrow(/Refused/);
+  });
+
+  it("allows ordinary commands", () => {
+    for (const command of [{ ping: 1 }, { collStats: "users" }, { find: "users", filter: {} }]) {
+      expect(() => assertNotIdentityCommand(command)).not.toThrow();
+    }
+  });
+});
+
 describe("registerMongoTools", () => {
   const { server, tools } = makeFakeServer();
   registerMongoTools(server, fakeGetClient);
@@ -162,22 +199,6 @@ describe("registerMongoTools", () => {
       "createSearchIndex",
       "updateSearchIndex",
       "dropSearchIndex",
-      // user management
-      "createUser",
-      "updateUser",
-      "dropUser",
-      "grantRolesToUser",
-      "revokeRolesFromUser",
-      "listUsers",
-      // role management
-      "listRoles",
-      "createRole",
-      "updateRole",
-      "dropRole",
-      "grantRolesToRole",
-      "revokeRolesFromRole",
-      "grantPrivilegesToRole",
-      "revokePrivilegesFromRole",
       // database admin
       "dropDatabase",
       "collMod",
@@ -222,11 +243,58 @@ describe("registerMongoTools", () => {
 
   it("gives every tool a title and behavioural annotations", () => {
     for (const [name, t] of tools) {
-      expect(typeof t.annotations.title, `${name} title`).toBe("string");
-      expect((t.annotations.title as string).length, `${name} title`).toBeGreaterThan(0);
+      expect(typeof t.title, `${name} title`).toBe("string");
+      expect(t.title.length, `${name} title`).toBeGreaterThan(0);
       expect(typeof t.annotations.readOnlyHint, `${name} readOnlyHint`).toBe("boolean");
       expect(typeof t.annotations.destructiveHint, `${name} destructiveHint`).toBe("boolean");
     }
+  });
+
+  it("registers no identity-management tool", () => {
+    const forbidden = [
+      "createUser",
+      "updateUser",
+      "dropUser",
+      "grantRolesToUser",
+      "revokeRolesFromUser",
+      "listUsers",
+      "listRoles",
+      "createRole",
+      "updateRole",
+      "dropRole",
+      "grantRolesToRole",
+      "revokeRolesFromRole",
+      "grantPrivilegesToRole",
+      "revokePrivilegesFromRole",
+    ];
+    for (const name of forbidden) {
+      expect(tools.has(name), `'${name}' needs userAdmin and must not be exposed`).toBe(false);
+    }
+  });
+
+  it("runCommand refuses user and role administration commands", async () => {
+    const runCommand = tools.get("runCommand");
+    expect(runCommand).toBeDefined();
+    for (const command of [
+      { createUser: "mallory", pwd: "x", roles: ["root"] },
+      { grantRolesToUser: "someone", roles: ["root"] },
+      { CREATEROLE: "sneaky" },
+      { usersInfo: 1 },
+    ]) {
+      const result = await runCommand!.handler({ db: "admin", command });
+      expect(result.isError, `${Object.keys(command)[0]} should be refused`).toBe(true);
+      expect(result.content[0].text).toContain("Refused");
+    }
+  });
+
+  it("runCommand still allows ordinary commands through to the driver", async () => {
+    // fakeGetClient rejects, so reaching it at all proves the guard let it past.
+    const result = await tools.get("runCommand")!.handler({
+      db: "admin",
+      command: { ping: 1 },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("fakeGetClient should not be invoked");
   });
 
   it("gates every irreversible tool behind confirm: true", () => {
@@ -234,14 +302,12 @@ describe("registerMongoTools", () => {
       "dropCollection",
       "dropDatabase",
       "dropIndexes",
-      "dropUser",
-      "dropRole",
       "convertToCapped",
       "enableSharding",
       "shardCollection",
     ];
     for (const name of gated) {
-      const confirm = tools.get(name)?.schema.confirm as
+      const confirm = tools.get(name)?.shape.confirm as
         | { safeParse: (value: unknown) => { success: boolean } }
         | undefined;
       expect(confirm, `${name} should take a confirm argument`).toBeDefined();
