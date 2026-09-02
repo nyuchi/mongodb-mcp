@@ -338,8 +338,13 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
           <div class="desc"><code>listSearchIndexes</code>, <code>createSearchIndex</code>, <code>updateSearchIndex</code>, <code>dropSearchIndex</code></div>
         </li>
         <li>
-          <strong>User management</strong>
-          <div class="desc"><code>createUser</code>, <code>updateUser</code>, <code>dropUser</code>, <code>grantRolesToUser</code>, <code>revokeRolesFromUser</code></div>
+          <strong>Deliberately absent: user and role management</strong>
+          <div class="desc">
+            No tool here creates users or grants roles, and <code>runCommand</code> refuses that
+            command family. Those operations need <code>userAdmin</code>, which cannot be scoped —
+            a credential that can create a user can create a <code>root</code> user. Use the Atlas
+            UI or <code>mongosh</code> instead.
+          </div>
         </li>
       </ul>
 
@@ -367,8 +372,11 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
             <td><code>dbAdmin</code> (or <code>dbOwner</code> for both)</td>
           </tr>
           <tr>
-            <td>User-management tools (<code>createUser</code>, …, <code>revokeRolesFromUser</code>)</td>
-            <td><code>userAdmin</code></td>
+            <td>Creating users or granting roles — <strong>not offered by this server</strong></td>
+            <td>
+              <strong>Never grant <code>userAdmin</code></strong> to the
+              <code>MONGODB_URI</code> credential
+            </td>
           </tr>
           <tr>
             <td>Atlas Search tools</td>
