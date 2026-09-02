@@ -17,7 +17,7 @@ is never public.
 MCP client ──OAuth──> Cloudflare Worker ──> WorkOS AuthKit (sign in)
    │                       /authorize,/token,/callback        │
    │                                                          ▼
-   └────────── authorized session ──> MongoMcp (Durable Object) ──> MongoDB
+   └────────── authorized request ──> /mcp handler (stateless) ──> MongoDB
 ```
 
 - `@cloudflare/workers-oauth-provider` fronts the worker, serving `/authorize`,
@@ -29,12 +29,21 @@ MCP client ──OAuth──> Cloudflare Worker ──> WorkOS AuthKit (sign in)
   The Connect app exposes permissions **as OAuth scopes**, so the worker
   requests the permission as a scope and WorkOS grants it only when the user's
   org role holds it.
-- `MongoMcp` is a `McpAgent` Durable Object. One DO per MCP session caches a
-  single `MongoClient` so handshakes amortise across tool calls.
+- `/mcp` is **stateless**: `createMcpHandler` (from `agents/mcp/server`, on MCP
+  SDK v2) builds a fresh `McpServer` for each request. There is no Durable
+  Object and no server-side session, so any isolate can serve any request.
+- The `MongoClient` is cached per **isolate** rather than per session, and the
+  driver's own connection pool rides along with it. The client is created
+  inside the request path — workerd will not open sockets at module scope — and
+  discarded on a failed connect so one bad attempt cannot poison the isolate.
 - All MongoDB operations are registered as MCP tools in `src/tools.ts`, each
   carrying a human-friendly `title` and behavioural annotations
   (`readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`) so
   clients can auto-approve safe reads and warn before destructive operations.
+
+**No identity management.** This server exposes no tool that creates or
+modifies MongoDB users or roles, and `runCommand` refuses those commands too.
+See [Why there is no user or role management](#why-there-is-no-user-or-role-management).
 
 > **Client note:** any MCP client that speaks remote OAuth (Claude's hosted
 > connector, Claude Code, Cursor, VS Code, …) can connect directly — it runs
@@ -64,16 +73,31 @@ Replication and sharding: `replSetGetStatus`, `listShards`, `balancerStatus`,
 `confirm: true`).
 Atlas Search: `listSearchIndexes`, `createSearchIndex`, `updateSearchIndex`,
 `dropSearchIndex`.
-User management: `createUser`, `updateUser`, `dropUser` (requires
-`confirm: true`), `grantRolesToUser`, `revokeRolesFromUser`, `listUsers`.
-Role management: `listRoles`, `createRole`, `updateRole`, `dropRole` (requires
-`confirm: true`), `grantRolesToRole`, `revokeRolesFromRole`,
-`grantPrivilegesToRole`, `revokePrivilegesFromRole`.
 
 `connectionStatus` is the quickest way to see which user the server is
 authenticated as and exactly which privileges it holds — start there when a
 tool comes back with "not authorized". `hideIndex` lets you retire an index
 safely: hide it, watch for regressions, then `dropIndex` once you are sure.
+
+### Why there is no user or role management
+
+Creating or altering MongoDB users and roles requires the `userAdmin`
+privilege, and `userAdmin` **cannot be scoped down**. There is no form of it
+that means "may manage only these users" or "may not grant more than it
+holds": a credential that can create a user can create a `root` user, and a
+credential that can grant roles can grant itself any role on the cluster. That
+turns every other limit this server places on itself — the `confirm` gates, the
+read-only annotations, the WorkOS permission check — into a speed bump, because
+anyone who reaches the MCP could mint a fresh superuser and step around them.
+
+So the tools are simply absent, and `runCommand` refuses the same commands
+(`createUser`, `grantRolesToUser`, `createRole`, `rolesInfo`, and the rest of
+the family, in any casing) rather than leaving a one-line bypass of their
+removal. The `MONGODB_URI` credential should not hold `userAdmin` at all.
+
+Manage users and roles where they can be audited and separately authorised: the
+Atlas UI (Database Access), the Atlas Admin API, or `mongosh` with a
+distinct admin credential that never reaches this worker.
 
 All filter/document/pipeline arguments accept **Extended JSON** so you can pass
 `{"_id": {"$oid": "..."}}` or `{"createdAt": {"$gte": {"$date": "2025-01-01"}}}`
@@ -246,16 +270,20 @@ The user encoded in `MONGODB_URI` must have the privileges for whichever tools
 you intend to call — the MCP can only do what that user is authorised to do.
 Grant the smallest role that covers your usage:
 
-| Tools you want to use                                                                                                                                                                                                                               | Required role (on the target db)                                      |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `find`, `findOne`, `count`, `aggregate`, `distinct`, `listIndexes`, `collStats`, `dataSize`, `dbHash`                                                                                                                                               | `read`                                                                |
-| Above + `insert*`, `update*`, `delete*`, `replaceOne`, `findOneAnd*`, `bulkWrite`, `createIndex`, `createIndexes`, `dropIndex`, `createCollection`, `dropCollection`, `renameCollection`                                                            | `readWrite`                                                           |
-| `createView`, `explain`, `dbStats`, `collMod`, `validate`, `convertToCapped`, `dropIndexes`, `hideIndex`, `unhideIndex`, `indexStats`, profiler tools (`getProfilingStatus`, `setProfilingLevel`, `getProfilingData`)                               | `dbAdmin` (combine with `readWrite`, or use `dbOwner`)                |
-| `createUser`, `updateUser`, `dropUser`, `grantRolesToUser`, `revokeRolesFromUser`, `listUsers`, `listRoles`, `createRole`, `updateRole`, `dropRole`, `grantRolesToRole`, `revokeRolesFromRole`, `grantPrivilegesToRole`, `revokePrivilegesFromRole` | `userAdmin`                                                           |
-| `serverStatus`, `hostInfo`, `buildInfo`, `listCommands`, `getLog`, `top`, `connPoolStats`, `currentOp`, `replSetGetStatus`, `listShards`, `balancerStatus`                                                                                          | `clusterMonitor` (on `admin`, part of `clusterAdmin`)                 |
-| `killOp`, `enableSharding`, `shardCollection`                                                                                                                                                                                                       | `clusterManager` / `hostManager` (on `admin`, part of `clusterAdmin`) |
-| Atlas Search tools (`listSearchIndexes`, `createSearchIndex`, …)                                                                                                                                                                                    | Atlas-cluster role with Search privileges (e.g. `atlasAdmin`)         |
-| Anything on every database in the cluster                                                                                                                                                                                                           | `readWriteAnyDatabase` / `dbAdminAnyDatabase` / `root`                |
+| Tools you want to use                                                                                                                                                                                                 | Required role (on the target db)                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `find`, `findOne`, `count`, `aggregate`, `distinct`, `listIndexes`, `collStats`, `dataSize`, `dbHash`                                                                                                                 | `read`                                                                |
+| Above + `insert*`, `update*`, `delete*`, `replaceOne`, `findOneAnd*`, `bulkWrite`, `createIndex`, `createIndexes`, `dropIndex`, `createCollection`, `dropCollection`, `renameCollection`                              | `readWrite`                                                           |
+| `createView`, `explain`, `dbStats`, `collMod`, `validate`, `convertToCapped`, `dropIndexes`, `hideIndex`, `unhideIndex`, `indexStats`, profiler tools (`getProfilingStatus`, `setProfilingLevel`, `getProfilingData`) | `dbAdmin` (combine with `readWrite`, or use `dbOwner`)                |
+| `serverStatus`, `hostInfo`, `buildInfo`, `listCommands`, `getLog`, `top`, `connPoolStats`, `currentOp`, `replSetGetStatus`, `listShards`, `balancerStatus`                                                            | `clusterMonitor` (on `admin`, part of `clusterAdmin`)                 |
+| `killOp`, `enableSharding`, `shardCollection`                                                                                                                                                                         | `clusterManager` / `hostManager` (on `admin`, part of `clusterAdmin`) |
+| Atlas Search tools (`listSearchIndexes`, `createSearchIndex`, …)                                                                                                                                                      | Atlas-cluster role with Search privileges (e.g. `atlasAdmin`)         |
+| Anything on every database in the cluster                                                                                                                                                                             | `readWriteAnyDatabase` / `dbAdminAnyDatabase` / `root`                |
+
+**Never grant `userAdmin` (or `userAdminAnyDatabase`, or `root`) to this
+credential.** No tool needs it, `runCommand` refuses the commands that would
+use it, and it cannot be scoped — see
+[Why there is no user or role management](#why-there-is-no-user-or-role-management).
 
 Tools that hit a permission boundary return the MongoDB error plus a hint
 pointing back to this section, so you can iterate without trial-and-error.
