@@ -42,8 +42,14 @@ is cleared on a failed connect so one bad attempt cannot poison the isolate.
 | `src/icon.ts`                | Inline MCP Tools logo SVG served at `/icon.svg`.                                                 |
 | `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                                                |
 | `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.                                         |
-| `src/landing.ts`             | Static landing page served at `/`.                                                               |
-| `test/`                      | Vitest specs (run inside `workerd` via the Cloudflare pool).                                     |
+| `src/landing.ts`             | Static landing page served at `/` — **public**, and it documents the tool surface.               |
+| `src/props.ts`               | Type of the auth props the OAuth provider hands the API handler.                                 |
+| `src/native-stub.js`         | No-op stand-in for the driver's native optional deps (aliased in `wrangler.jsonc`).              |
+| `test/tools.test.ts`         | Tool catalogue, annotations, and the security invariants (see below).                            |
+| `test/handler.test.ts`       | Drives the real stateless `/mcp` handler end to end inside `workerd`.                            |
+| `test/mongo.test.ts`         | Extended-JSON helpers and the 256 KiB truncation cap.                                            |
+| `test/oauth-utils.test.ts`   | Client-approval cookie signing + approval-dialog helpers.                                        |
+| `.github/workflows/`         | `ci.yml`, `lint.yml`, `security.yml`, `auto-tag.yml`, `release.yml`, `auto-assign.yml`.          |
 | `wrangler.jsonc`             | Production worker config; `OAUTH_KV` binding lives here.                                         |
 | `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here.                                 |
 
@@ -57,8 +63,51 @@ npm run type-check     # tsc --noEmit
 npm run deploy         # wrangler deploy
 ```
 
-CI also runs `prettier --check`, `markdownlint`, `yamllint`, `actionlint`, and
-JSON validity — fix locally with `npx prettier --write <files>` before pushing.
+## CI and test infrastructure
+
+Three workflows gate every pull request and every push to `main`. Run their
+fast equivalents locally before pushing — a red check costs a review cycle.
+
+| Workflow       | What it enforces                                                                                                         | Local equivalent                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `ci.yml`       | `tsc --noEmit`; `vitest run` inside `workerd`; `wrangler deploy --dry-run` so bundle/config breakage fails before deploy | `npm run type-check && npm test` |
+| `lint.yml`     | org reusable lint: `prettier --check`, `markdownlint`, `yamllint`, `actionlint`, JSON validity                           | `npx prettier --write <files>`   |
+| `security.yml` | `npm audit --omit=dev --audit-level=high`, `dependency-review-action` (fails on high), `gitleaks` — plus a weekly cron   | `npm audit --omit=dev`           |
+
+CodeQL runs via GitHub's Default Setup, not a workflow here — adding an
+advanced CodeQL workflow would conflict with it and both would fail.
+
+### What the tests guard, and what they do not
+
+`test/tools.test.ts` is the security spec for the tool surface, not just a
+smoke test. It asserts today that:
+
+- the registered catalogue matches an explicit `expected` list **exactly**, so
+  adding a tool without listing it fails the build;
+- no identity-management tool is registered, by name;
+- `runCommand` refuses user/role commands (`assertNotIdentityCommand`);
+- every irreversible tool rejects `confirm: false` and `confirm: undefined`;
+- `deleteMany` refuses an empty or missing filter unless confirmed;
+- every tool carries a non-empty `title`, `description`, and boolean
+  `readOnlyHint` / `destructiveHint`.
+
+`test/handler.test.ts` re-checks the identity invariants against the real
+handler in `workerd`, so a guard that exists in `tools.ts` but is bypassed by
+the wiring still fails.
+
+Known gaps — worth closing before widening the tool surface:
+
+- **Annotations are checked for presence, not correctness.** A destructive tool
+  mislabelled `readOnlyHint: true` passes today, and clients auto-approve on
+  that hint. Prefer deriving the assertion from the `READ`/`ADD`/`MUTATE`
+  preset a tool was registered with.
+- **The `confirm` gate list is hand-maintained.** A new `drop*` tool added
+  without a gate fails no test. A name-shape rule (anything matching
+  `/^drop|^shard|^enableSharding|Capped$/` must gate) would close it.
+- **`IDENTITY_COMMANDS` is spot-checked**, not iterated — the tests exercise 5
+  of its 17 entries. Drive the test from the exported set instead.
+- **No test asserts the OAuth gate fails closed** when `WORKOS_*` vars are
+  missing or the scope/org claim is absent.
 
 ## Conventions to keep
 
@@ -88,6 +137,11 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
   which defeats every other guard here. `runCommand` enforces the same rule via
   `assertNotIdentityCommand`; extend `IDENTITY_COMMANDS` if MongoDB adds to the
   family. See README → 'Why there is no user or role management'.
+- **`src/landing.ts` is documentation with a public URL.** It lists the tool
+  surface and the role requirements at <https://mongodb.nyuchi.dev>. Any change
+  to which tools exist, or to what the `MONGODB_URI` credential should hold,
+  has to land there in the same PR — v2.0.0 shipped without it and left the
+  public page advertising removed tools and prescribing `userAdmin`.
 - **No comments unless they explain _why_.** This repo follows the global
   rule — prefer expressive names over narration.
 
@@ -104,9 +158,12 @@ JSON validity — fix locally with `npx prettier --write <files>` before pushing
 3. If the operation maps to a non-`readWrite` MongoDB privilege, mention it in
    the README's "MongoDB user role requirements" table so `permissionHint`'s
    pointer stays accurate.
-4. Add the tool name to the `expected` list in `test/tools.test.ts` and add a
-   focused unit test if the handler does anything beyond a thin driver call.
-5. Update the "Available tools" section of `README.md`.
+4. Add the tool name to the `expected` list in `test/tools.test.ts` (the size
+   assertion fails otherwise) and add a focused unit test if the handler does
+   anything beyond a thin driver call. If the tool is irreversible, add it to
+   the `gated` list in the confirm-gate test too.
+5. Update the "Available tools" section of `README.md` **and** the tool list in
+   `src/landing.ts` — the latter is the public page and is easy to forget.
 
 ## Auth / permissions reference
 
