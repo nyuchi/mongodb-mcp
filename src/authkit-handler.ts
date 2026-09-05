@@ -63,6 +63,57 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
 
 // ---
 
+export type AccessDenial = { status: 403 | 500; message: string };
+
+/**
+ * The org + permission gate, kept pure so it can be exercised exhaustively.
+ *
+ * Both checks fail CLOSED. An unset or blank `WORKOS_ALLOWED_ORG_IDS` or
+ * `WORKOS_REQUIRED_PERMISSION` is a misconfigured deployment, not an
+ * invitation to skip the check — treating it as "no restriction" would let
+ * any WorkOS user of any organization reach the MongoDB tool surface, which
+ * is the one thing this gate exists to prevent.
+ */
+export function checkAccess(
+  config: { allowedOrgIds?: string; requiredPermission?: string },
+  session: { organizationId?: string; permissions: readonly string[] },
+): AccessDenial | null {
+  const allowedOrgs = (config.allowedOrgIds ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowedOrgs.length === 0) {
+    return {
+      status: 500,
+      message:
+        "This MCP server is misconfigured: WORKOS_ALLOWED_ORG_IDS is not set, so no organization can be authorized. Refusing the request.",
+    };
+  }
+  if (!session.organizationId || !allowedOrgs.includes(session.organizationId)) {
+    return {
+      status: 403,
+      message: "Your WorkOS organization is not authorized to use this MCP server.",
+    };
+  }
+
+  const requiredPermission = (config.requiredPermission ?? "").trim();
+  if (!requiredPermission) {
+    return {
+      status: 500,
+      message:
+        "This MCP server is misconfigured: WORKOS_REQUIRED_PERMISSION is not set, so no permission can be verified. Refusing the request.",
+    };
+  }
+  if (!session.permissions.includes(requiredPermission)) {
+    return {
+      status: 403,
+      message: `Missing required permission "${requiredPermission}". Ask your WorkOS admin to grant it.`,
+    };
+  }
+
+  return null;
+}
+
 const app = new Hono<{
   Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers };
 }>();
@@ -256,21 +307,14 @@ app.get("/callback", async (c) => {
   const permissions: string[] = [...(atClaims.permissions ?? []), ...grantedScopes];
   const organizationId = atClaims.org_id;
 
-  const allowedOrgs = (c.env.WORKOS_ALLOWED_ORG_IDS || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (allowedOrgs.length > 0 && (!organizationId || !allowedOrgs.includes(organizationId))) {
-    return c.text("Your WorkOS organization is not authorized to use this MCP server.", 403);
-  }
-
-  const requiredPermission = (c.env.WORKOS_REQUIRED_PERMISSION || "").trim();
-  if (requiredPermission && !permissions.includes(requiredPermission)) {
-    return c.text(
-      `Missing required permission "${requiredPermission}". Ask your WorkOS admin to grant it.`,
-      403,
-    );
-  }
+  const denial = checkAccess(
+    {
+      allowedOrgIds: c.env.WORKOS_ALLOWED_ORG_IDS,
+      requiredPermission: c.env.WORKOS_REQUIRED_PERMISSION,
+    },
+    { organizationId, permissions },
+  );
+  if (denial) return c.text(denial.message, denial.status);
 
   const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
     request: oauthReqInfo,

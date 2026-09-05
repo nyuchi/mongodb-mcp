@@ -34,7 +34,7 @@
   },
   "overrides": {
     "bson": "7.2.0",
-    "fast-uri": "^3.1.5",
+    "fast-uri": "^3.1.7",
     "hono": "^4.13.3",
     "ip-address": "^10.5.0"
   }

@@ -320,10 +320,37 @@ npm run type-check
 
 Coverage:
 
-- `test/mongo.test.ts` — Extended JSON parse/stringify helpers (including
-  truncation of oversized payloads).
+- `test/mongo.test.ts` — Extended JSON parse/stringify helpers, including
+  truncation of oversized payloads at the 256 KiB cap.
 - `test/tools.test.ts` — `permissionHint` / `fail` enrichment, the full
-  registered-tool catalogue, and the per-tool title + annotations.
+  registered-tool catalogue and its exact size, the per-tool title and
+  annotations, and the security invariants: no identity tool is registered,
+  `runCommand` refuses identity commands, and every irreversible tool is gated
+  behind `confirm: true`.
+- `test/handler.test.ts` — drives the real stateless `/mcp` handler inside
+  `workerd`: the `initialize` handshake, `tools/list` returning the expected
+  catalogue with no identity tools, `runCommand` refusing `createUser`, and
+  repeated requests each getting a fresh server instance.
+- `test/oauth-utils.test.ts` — client-approval cookie signing and the approval
+  dialog helpers.
+- `test/access-gate.test.ts` — the org + permission gate: who is admitted, who
+  is refused, and that missing configuration fails closed rather than open.
+
+### Continuous integration
+
+Every pull request and every push to `main` runs three workflows:
+
+| Workflow       | Checks                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`       | `npm run type-check`, `npm test` (vitest in `workerd`), `wrangler deploy --dry-run` to catch bundle/config breakage |
+| `lint.yml`     | org-wide reusable lint: `prettier --check`, `markdownlint`, `yamllint`, `actionlint`, JSON validity                 |
+| `security.yml` | `npm audit --omit=dev --audit-level=high`, `dependency-review-action` (fails on high), `gitleaks` secret scan       |
+
+`security.yml` also runs on a weekly cron so advisories published after a PR
+merges still surface. CodeQL runs through GitHub's Default Setup rather than a
+workflow in this repo — an advanced configuration here would conflict with it.
+
+Fix lint locally with `npx prettier --write <files>` before pushing.
 
 End-to-end smoke testing against a real WorkOS tenant + MongoDB cluster is not
 in the test suite; spin up `wrangler dev` with `.dev.vars` to exercise the
@@ -334,8 +361,16 @@ full path.
 The official `mongodb` Node driver runs on Workers thanks to the
 `nodejs_compat` compatibility flag (which provides `node:net`, `node:tls`,
 `node:dns`, and `node:timers`). The driver opens TCP sockets to your cluster
-from inside the Durable Object's request handler — never at module scope —
-which is the only place Workers permit TCP connections.
+from inside the request handler — never at module scope — which is the only
+place Workers permit TCP connections. `getClient()` in `src/index.ts` enforces
+that: the `MongoClient` promise is created lazily on the first request an
+isolate serves, and cleared again if the connect fails.
+
+Two dependency pins exist for the same runtime reason and are load-bearing:
+`bson` is held at `7.2.0` because 7.3.0 generates random bytes in `ObjectId`'s
+module-scope static initializer, which workerd rejects at startup validation;
+and native optional dependencies (`snappy`, `kerberos`, `mongodb-client-encryption`,
+`@mongodb-js/zstd`) are aliased to `src/native-stub.js` in `wrangler.jsonc`.
 
 ## Security notes
 
@@ -344,9 +379,17 @@ which is the only place Workers permit TCP connections.
   tools, and the gate fails closed when unconfigured.
 - Access is double-gated: the session's `org_id` must be in the allowlist **and**
   the `mongodb:access` permission must be present in the granted OAuth scope
-  (WorkOS grants it only to users whose org role holds it).
-- `deleteMany` with an empty filter and `dropCollection` both require an
-  explicit confirmation flag from the tool caller.
+  (WorkOS grants it only to users whose org role holds it). Both checks **fail
+  closed** — if `WORKOS_ALLOWED_ORG_IDS` or `WORKOS_REQUIRED_PERMISSION` is
+  unset, the worker refuses the request rather than treating absent config as
+  "no restriction".
+- Six irreversible tools refuse to run without `confirm: true` —
+  `dropCollection`, `dropDatabase`, `dropIndexes`, `convertToCapped`,
+  `enableSharding`, `shardCollection` — and `deleteMany` additionally refuses an
+  empty (match-everything) filter unless confirmed. A test asserts the gate
+  holds for every tool on that list.
+- Tool responses are capped at 256 KiB by `stringifyEJson`, so a `find` over a
+  large collection truncates rather than exhausting the isolate.
 - The worker stores no WorkOS secret (public PKCE client);
   `COOKIE_ENCRYPTION_KEY` encrypts the client-approval cookie and `MONGODB_URI`
   is a Wrangler secret.

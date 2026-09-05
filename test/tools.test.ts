@@ -2,7 +2,16 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import type { MongoClient } from "mongodb";
 import type { ZodObject, ZodRawShape } from "zod";
 import { describe, expect, it } from "vitest";
-import { assertNotIdentityCommand, fail, permissionHint, registerMongoTools } from "../src/tools";
+import {
+  ADD,
+  IDENTITY_COMMANDS,
+  MUTATE,
+  READ,
+  assertNotIdentityCommand,
+  fail,
+  permissionHint,
+  registerMongoTools,
+} from "../src/tools";
 
 type Registered = {
   name: string;
@@ -250,6 +259,109 @@ describe("registerMongoTools", () => {
     }
   });
 
+  // Presence is not the property that matters. Clients auto-approve on
+  // readOnlyHint, so a destructive tool wearing readOnlyHint: true is a way to
+  // get an unattended drop past a human. These assertions are derived from the
+  // tool's name and the exported presets rather than a list kept alongside the
+  // registry, so a mislabelled tool fails even if someone updates both files.
+  describe("annotations are correct, not merely present", () => {
+    const safetyOf = (name: string) => {
+      const a = tools.get(name)!.annotations;
+      return { readOnly: a.readOnlyHint as boolean, destructive: a.destructiveHint as boolean };
+    };
+
+    it("uses only the three coherent safety shapes", () => {
+      const shapes = [READ, ADD, MUTATE].map((p) => `${p.readOnlyHint}/${p.destructiveHint}`);
+      for (const [name] of tools) {
+        const { readOnly, destructive } = safetyOf(name);
+        expect(shapes, `${name} has an off-preset safety shape`).toContain(
+          `${readOnly}/${destructive}`,
+        );
+      }
+    });
+
+    it("never marks a tool both read-only and destructive", () => {
+      for (const [name] of tools) {
+        const { readOnly, destructive } = safetyOf(name);
+        expect(readOnly && destructive, `${name} claims to be read-only and destructive`).toBe(
+          false,
+        );
+      }
+    });
+
+    // Anything that reads: a client may run it unattended, so it must not be
+    // able to change the cluster.
+    it("marks every read-shaped tool read-only and non-destructive", () => {
+      const readShaped = /^(list|get)|Stats$/;
+      const alsoReads = [
+        "find",
+        "findOne",
+        "count",
+        "ping",
+        "distinct",
+        "estimatedDocumentCount",
+        "explain",
+        "validate",
+        "dataSize",
+        "dbHash",
+        "serverStatus",
+        "hostInfo",
+        "buildInfo",
+        "connectionStatus",
+        "top",
+        "currentOp",
+        "replSetGetStatus",
+        "balancerStatus",
+      ];
+      const names = [...tools.keys()].filter((n) => readShaped.test(n) || alsoReads.includes(n));
+      expect(names.length).toBeGreaterThan(25);
+      for (const name of names) {
+        const { readOnly, destructive } = safetyOf(name);
+        expect(readOnly, `${name} reads and must be readOnlyHint: true`).toBe(true);
+        expect(destructive, `${name} reads and must not be destructiveHint: true`).toBe(false);
+      }
+    });
+
+    // Anything that can overwrite or remove: the client must be told, so a
+    // human sees a prompt before it runs.
+    it("marks every mutating tool destructive and not read-only", () => {
+      const mutating =
+        /^(drop|delete|update|replace|findOneAnd|kill|shard|enableSharding|convertToCapped|collMod|rename|bulkWrite|hideIndex|setProfilingLevel|runCommand)/;
+      const names = [...tools.keys()].filter((n) => mutating.test(n));
+      expect(names.length).toBeGreaterThan(15);
+      for (const name of names) {
+        const { readOnly, destructive } = safetyOf(name);
+        expect(destructive, `${name} mutates and must be destructiveHint: true`).toBe(true);
+        expect(readOnly, `${name} mutates and must not be readOnlyHint: true`).toBe(false);
+      }
+    });
+
+    it("never marks a writing tool read-only", () => {
+      for (const name of [...tools.keys()].filter((n) => /^(insert|create|aggregate)/.test(n))) {
+        expect(safetyOf(name).readOnly, `${name} writes and must not be readOnlyHint: true`).toBe(
+          false,
+        );
+      }
+    });
+
+    it("treats read-only tools as idempotent", () => {
+      for (const [name, t] of tools) {
+        if (t.annotations.readOnlyHint) {
+          expect(t.annotations.idempotentHint, `${name} is read-only but not idempotent`).toBe(
+            true,
+          );
+        }
+      }
+    });
+
+    // Every tool acts on the one connected cluster. runCommand is the sole
+    // open-ended escape hatch, so it is the sole openWorldHint.
+    it("reserves openWorldHint for runCommand", () => {
+      const open = [...tools].filter(([, t]) => t.annotations.openWorldHint).map(([n]) => n);
+      expect(open).toEqual(["runCommand"]);
+    });
+  });
+
   it("registers no identity-management tool", () => {
     const forbidden = [
       "createUser",
@@ -272,18 +384,55 @@ describe("registerMongoTools", () => {
     }
   });
 
-  it("runCommand refuses user and role administration commands", async () => {
+  // Driven from the exported set rather than a sample of it: adding a command
+  // to IDENTITY_COMMANDS without it actually being refused fails here, and so
+  // does quietly removing one.
+  it("runCommand refuses every command in IDENTITY_COMMANDS", async () => {
     const runCommand = tools.get("runCommand");
     expect(runCommand).toBeDefined();
+    expect(IDENTITY_COMMANDS.size).toBeGreaterThanOrEqual(17);
+
+    for (const command of IDENTITY_COMMANDS) {
+      for (const spelling of [
+        command,
+        command.toUpperCase(),
+        command[0].toUpperCase() + command.slice(1),
+      ]) {
+        const result = await runCommand!.handler({ db: "admin", command: { [spelling]: 1 } });
+        expect(result.isError, `runCommand should refuse '${spelling}'`).toBe(true);
+        expect(result.content[0].text).toContain("Refused");
+      }
+    }
+  });
+
+  it("refuses an identity command smuggled in beside a benign one", async () => {
+    const result = await tools.get("runCommand")!.handler({
+      db: "admin",
+      command: { ping: 1, listCollections: 1, createUser: "mallory", roles: ["root"] },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Refused");
+  });
+
+  // The set is the guard's whole surface area. Pin the entries that matter so
+  // shrinking it is a visible, deliberate edit rather than a silent one.
+  it("keeps every privilege-granting command in IDENTITY_COMMANDS", () => {
     for (const command of [
-      { createUser: "mallory", pwd: "x", roles: ["root"] },
-      { grantRolesToUser: "someone", roles: ["root"] },
-      { CREATEROLE: "sneaky" },
-      { usersInfo: 1 },
+      "createuser",
+      "updateuser",
+      "dropuser",
+      "dropallusersfromdatabase",
+      "grantrolestouser",
+      "revokerolesfromuser",
+      "createrole",
+      "updaterole",
+      "droprole",
+      "grantrolestorole",
+      "revokerolesfromrole",
+      "grantprivilegestorole",
+      "revokeprivilegesfromrole",
     ]) {
-      const result = await runCommand!.handler({ db: "admin", command });
-      expect(result.isError, `${Object.keys(command)[0]} should be refused`).toBe(true);
-      expect(result.content[0].text).toContain("Refused");
+      expect(IDENTITY_COMMANDS.has(command), `${command} must stay refused`).toBe(true);
     }
   });
 
@@ -297,15 +446,32 @@ describe("registerMongoTools", () => {
     expect(result.content[0].text).toContain("fakeGetClient should not be invoked");
   });
 
+  // Ungated drop-shaped tools are a deliberate call, not an oversight:
+  // a single index is cheap to rebuild, a collection or database is not.
+  // Anything new matching the shape has to be classified here or the suite
+  // fails, so a gate can never be forgotten by simply not thinking about it.
+  const GATED = [
+    "dropCollection",
+    "dropDatabase",
+    "dropIndexes",
+    "convertToCapped",
+    "enableSharding",
+    "shardCollection",
+  ];
+  const UNGATED_BY_DESIGN = ["dropIndex", "dropSearchIndex"];
+
+  it("classifies every destructive-shaped tool as gated or deliberately ungated", () => {
+    const shaped = [...tools.keys()].filter((n) => /^(drop|truncate|remove|purge)/.test(n));
+    for (const name of shaped) {
+      expect(
+        GATED.includes(name) || UNGATED_BY_DESIGN.includes(name),
+        `${name} looks irreversible: add it to GATED, or to UNGATED_BY_DESIGN with a reason`,
+      ).toBe(true);
+    }
+  });
+
   it("gates every irreversible tool behind confirm: true", () => {
-    const gated = [
-      "dropCollection",
-      "dropDatabase",
-      "dropIndexes",
-      "convertToCapped",
-      "enableSharding",
-      "shardCollection",
-    ];
+    const gated = GATED;
     for (const name of gated) {
       const confirm = tools.get(name)?.shape.confirm as
         | { safeParse: (value: unknown) => { success: boolean } }
