@@ -68,19 +68,19 @@ const jsonArray = z
 // remove data; `idempotentHint` tools are safe to retry with identical args.
 // `openWorldHint` stays false — every tool acts only on the connected MongoDB
 // cluster, a closed system (runCommand is the one open-ended exception).
-const READ = {
+export const READ = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: false,
 } as const;
-const ADD = {
+export const ADD = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
 } as const;
-const MUTATE = {
+export const MUTATE = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,
@@ -94,7 +94,7 @@ const MUTATE = {
 // are absent and `runCommand` refuses the same commands; otherwise it would be
 // a one-line bypass of their removal. Manage identities in the Atlas UI or a
 // separately-credentialled admin path instead.
-const IDENTITY_COMMANDS = new Set(
+export const IDENTITY_COMMANDS = new Set(
   [
     "createUser",
     "updateUser",
