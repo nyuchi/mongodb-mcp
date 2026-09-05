@@ -333,6 +333,8 @@ Coverage:
   repeated requests each getting a fresh server instance.
 - `test/oauth-utils.test.ts` — client-approval cookie signing and the approval
   dialog helpers.
+- `test/access-gate.test.ts` — the org + permission gate: who is admitted, who
+  is refused, and that missing configuration fails closed rather than open.
 
 ### Continuous integration
 
@@ -377,7 +379,10 @@ and native optional dependencies (`snappy`, `kerberos`, `mongodb-client-encrypti
   tools, and the gate fails closed when unconfigured.
 - Access is double-gated: the session's `org_id` must be in the allowlist **and**
   the `mongodb:access` permission must be present in the granted OAuth scope
-  (WorkOS grants it only to users whose org role holds it).
+  (WorkOS grants it only to users whose org role holds it). Both checks **fail
+  closed** — if `WORKOS_ALLOWED_ORG_IDS` or `WORKOS_REQUIRED_PERMISSION` is
+  unset, the worker refuses the request rather than treating absent config as
+  "no restriction".
 - Six irreversible tools refuse to run without `confirm: true` —
   `dropCollection`, `dropDatabase`, `dropIndexes`, `convertToCapped`,
   `enableSharding`, `shardCollection` — and `deleteMany` additionally refuses an

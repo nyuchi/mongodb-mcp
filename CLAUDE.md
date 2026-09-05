@@ -95,19 +95,40 @@ smoke test. It asserts today that:
 handler in `workerd`, so a guard that exists in `tools.ts` but is bypassed by
 the wiring still fails.
 
-Known gaps — worth closing before widening the tool surface:
+These invariants are **derived, not transcribed** — they read the exported
+`READ` / `ADD` / `MUTATE` presets and `IDENTITY_COMMANDS` from `src/tools.ts`,
+so they cannot drift out of step with the registry by someone updating one file
+and not the other:
 
-- **Annotations are checked for presence, not correctness.** A destructive tool
-  mislabelled `readOnlyHint: true` passes today, and clients auto-approve on
-  that hint. Prefer deriving the assertion from the `READ`/`ADD`/`MUTATE`
-  preset a tool was registered with.
-- **The `confirm` gate list is hand-maintained.** A new `drop*` tool added
-  without a gate fails no test. A name-shape rule (anything matching
-  `/^drop|^shard|^enableSharding|Capped$/` must gate) would close it.
-- **`IDENTITY_COMMANDS` is spot-checked**, not iterated — the tests exercise 5
-  of its 17 entries. Drive the test from the exported set instead.
-- **No test asserts the OAuth gate fails closed** when `WORKOS_*` vars are
-  missing or the scope/org claim is absent.
+- **Annotations are checked for correctness.** A tool's `readOnlyHint` /
+  `destructiveHint` pair must be one of the three preset shapes, never both
+  true; read-shaped names (`list*`, `get*`, `*Stats`, and a named list) must be
+  read-only and non-destructive; mutating names (`drop*`, `delete*`, `update*`,
+  `replace*`, `findOneAnd*`, …) must be destructive and not read-only; read-only
+  implies idempotent; and `openWorldHint` is reserved for `runCommand`. Clients
+  auto-approve on `readOnlyHint`, so a destructive tool wearing it is a way to
+  get an unattended drop past a human.
+- **Every `IDENTITY_COMMANDS` entry** is asserted refused through `runCommand`
+  in three casings, plus one smuggled in beside benign keys, plus a pinned list
+  of privilege-granting commands the set must keep.
+- **Destructive-shaped tools must be classified.** Anything matching
+  `/^(drop|truncate|remove|purge)/` has to appear in the test's `GATED` list or
+  in `UNGATED_BY_DESIGN` — a new one cannot default to ungated by nobody
+  thinking about it. (`dropIndex` and `dropSearchIndex` are ungated on purpose:
+  an index is cheap to rebuild, a collection is not.)
+- **`test/access-gate.test.ts`** exercises `checkAccess` from
+  `src/authkit-handler.ts` exhaustively, including that it **fails closed**.
+
+**The gate fails closed, deliberately.** An unset or blank
+`WORKOS_ALLOWED_ORG_IDS` or `WORKOS_REQUIRED_PERMISSION` returns 500 and admits
+nobody. Treating absent config as "no restriction" would let any WorkOS user of
+any organization reach the tool surface — it read as a safe default and was the
+opposite. Do not reintroduce a `length > 0 &&` or truthiness guard around
+either check.
+
+When changing a guard, verify the test can actually fail: break the guard on
+purpose, watch the suite go red, then restore it. Every invariant above was
+confirmed that way.
 
 ## Conventions to keep
 
