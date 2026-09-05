@@ -207,7 +207,11 @@ Known gaps — worth closing before widening the tool surface:
   advisories that `security.yml`'s `npm audit --omit=dev --audit-level=high` job
   fails on. They reach us transitively through `@modelcontextprotocol/sdk`
   (`ajv` and `express-rate-limit`); drop the overrides once the SDK ships
-  patched ranges.
+  patched ranges. **The floor is not set once.** A new advisory can extend a
+  vulnerable range over the version we pinned — that is how `^3.1.5` went red —
+  so when `npm audit` fails on one of these, raise the floor past the advisory's
+  range and refresh the lockfile with `npm install --package-lock-only`. Only
+  `high` and above fail the gate; moderate findings are reported, not blocking.
 - `agents@0.21` imports `@modelcontextprotocol/server` and
   `@modelcontextprotocol/client` (MCP SDK v2) at module scope even on the
   legacy `McpAgent` path, and `.npmrc` sets `legacy-peer-deps=true`, so both
