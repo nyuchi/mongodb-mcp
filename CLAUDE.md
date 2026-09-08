@@ -233,6 +233,15 @@ confirmed that way.
   so when `npm audit` fails on one of these, raise the floor past the advisory's
   range and refresh the lockfile with `npm install --package-lock-only`. Only
   `high` and above fail the gate; moderate findings are reported, not blocking.
+- **Never add an `overrides` entry for a package that is also a direct
+  dependency.** npm rejects the install with `EOVERRIDE` the moment the two
+  ranges diverge, and Dependabot bumps only the dependency — so every bump of
+  that package fails with "Override for X conflicts with direct dependency"
+  until someone edits both by hand. `hono` sat in both lists and silently broke
+  Dependabot's hono updates for that reason; the override was redundant anyway,
+  since `@modelcontextprotocol/sdk` (`^4.11.4`) and `@hono/node-server` (`^4`)
+  both dedupe to the direct dependency without it. Override transitive
+  dependencies only.
 - `agents@0.21` imports `@modelcontextprotocol/server` and
   `@modelcontextprotocol/client` (MCP SDK v2) at module scope even on the
   legacy `McpAgent` path, and `.npmrc` sets `legacy-peer-deps=true`, so both
