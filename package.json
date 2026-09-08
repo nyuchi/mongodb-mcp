@@ -19,10 +19,10 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "agents": "^0.21.0",
-    "hono": "^4.13.3",
-    "jose": "^6.2.3",
+    "hono": "^4.13.7",
+    "jose": "^6.2.11",
     "mongodb": "7.5.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
