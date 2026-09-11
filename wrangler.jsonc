@@ -11,24 +11,24 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["MongoMcp"]
+      "new_sqlite_classes": ["MongoMcp"],
     },
     {
       "tag": "v2",
-      "deleted_classes": ["MongoMcp"]
-    }
+      "deleted_classes": ["MongoMcp"],
+    },
   ],
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "5444b8773bc14eb78738c74f1d3c28ea"
-    }
+      "id": "5444b8773bc14eb78738c74f1d3c28ea",
+    },
   ],
   "routes": [
     {
       "pattern": "mongodb.nyuchi.dev",
-      "custom_domain": true
-    }
+      "custom_domain": true,
+    },
   ],
   "observability": {
     "enabled": false,
@@ -37,28 +37,28 @@
       "enabled": true,
       "head_sampling_rate": 1,
       "persist": true,
-      "invocation_logs": true
+      "invocation_logs": true,
     },
     "traces": {
       "enabled": true,
       "persist": true,
-      "head_sampling_rate": 1
-    }
+      "head_sampling_rate": 1,
+    },
   },
   "alias": {
     "@mongodb-js/zstd": "./src/native-stub.js",
     "kerberos": "./src/native-stub.js",
     "mongodb-client-encryption": "./src/native-stub.js",
-    "snappy": "./src/native-stub.js"
+    "snappy": "./src/native-stub.js",
   },
   "vars": {
     "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
     "WORKOS_CLIENT_ID": "client_01KVTX0V2K1VM3PSC0DJ9VZWTV",
     "WORKOS_ORGANIZATION_ID": "org_01KRDAB894DJF5V38PT5617TV1",
     "WORKOS_ALLOWED_ORG_IDS": "org_01KRDAB894DJF5V38PT5617TV1",
-    "WORKOS_REQUIRED_PERMISSION": "mongodb:access"
+    "WORKOS_REQUIRED_PERMISSION": "mongodb:access",
   },
   "dev": {
-    "port": 8788
-  }
+    "port": 8788,
+  },
 }

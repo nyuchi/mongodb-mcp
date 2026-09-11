@@ -7,7 +7,7 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "test-oauth-kv"
-    }
-  ]
+      "id": "test-oauth-kv",
+    },
+  ],
 }
