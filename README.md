@@ -1,15 +1,60 @@
-# mongodb-mcp
+# MongoDB MCP
 
-Authenticated remote **Model Context Protocol** server for managing MongoDB,
-running on Cloudflare Workers. The Nyuchi-hosted deployment lives at
-**<https://mongodb.nyuchi.dev/mcp>**. It is an internal, platform-team-only
-service: callers sign in with **WorkOS OAuth** (Authorization Code + PKCE) and
-must hold the `mongodb:access` permission. You can also stand the worker up
-under your own Cloudflare account against your own MongoDB cluster; see _Set up
-your own MCP server_ further down.
+> An authenticated remote Model Context Protocol server for operating MongoDB
+> clusters — 63 tools, on Cloudflare Workers, behind a WorkOS OAuth gate.
 
-Every request to `/mcp` rides on a WorkOS-issued OAuth session, so the endpoint
-is never public.
+[![CI](https://github.com/nyuchi/mongodb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nyuchi/mongodb-mcp/actions/workflows/ci.yml)
+[![Security](https://github.com/nyuchi/mongodb-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/nyuchi/mongodb-mcp/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat-square&logo=cloudflare&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB_driver-7.5-47A248?style=flat-square&logo=mongodb&logoColor=white)
+![Auth](https://img.shields.io/badge/Auth-WorkOS_OAuth_2.1-6363F1?style=flat-square)
+
+**Endpoint:** `https://mongodb.nyuchi.dev/mcp` | **Version:** 0.1.21 |
+**Deploy:** Cloudflare Workers
+
+---
+
+## Connect to it
+
+```text
+https://mongodb.nyuchi.dev/mcp
+```
+
+**A bare request returns `401`, and that is correct.** Every call rides on a
+WorkOS-issued OAuth session; the endpoint is never public. The `401` carries an
+RFC 9728 challenge pointing a compliant client at the authorization server, so
+it runs the sign-in itself:
+
+```console
+$ curl -s -D - -o /dev/null https://mongodb.nyuchi.dev/mcp
+HTTP/2 401
+www-authenticate: Bearer realm="OAuth",
+  resource_metadata="https://mongodb.nyuchi.dev/.well-known/oauth-protected-resource/mcp"
+```
+
+A `404` or a DNS failure would mean the server is down. A `401` with that
+header means it is up and gating correctly.
+
+Access is **platform-team only**: the access token's `org_id` must be in
+`WORKOS_ALLOWED_ORG_IDS` and the token must carry the `mongodb:access`
+permission. You can also stand the worker up under your own Cloudflare account
+against your own cluster — see [Set up your own MCP
+server](#set-up-your-own-mcp-server).
+
+## What it is
+
+An internal Nyuchi platform tool. It exposes MongoDB administration and query
+operations to any MCP-speaking client — discovery, reads, writes, indexes,
+administration — so a database can be inspected and operated from an agent
+session instead of a shell, with the same authorization the rest of the
+platform uses.
+
+Two deliberate limits shape it. It exposes **no identity management**: no tool
+creates or modifies MongoDB users or roles, and `runCommand` refuses those
+commands too. And six irreversible tools refuse to run without `confirm: true`,
+with `deleteMany` additionally refusing a match-everything filter unless
+confirmed.
 
 ## Architecture
 
@@ -420,6 +465,8 @@ A `RELEASE_BUMP_TOKEN` repo secret (fine-grained PAT with
 can push tags as a user identity rather than `GITHUB_TOKEN` —
 without that, downstream tag-triggered workflows would not fire.
 
-## License
+## Licence
 
-[MIT](./LICENSE) © Nyuchi.
+Licensed under the [MIT Licence](./LICENSE).
+
+© Nyuchi Africa (PVT) Ltd.
