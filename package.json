@@ -21,7 +21,7 @@
     "agents": "^0.21.0",
     "hono": "^4.13.3",
     "jose": "^6.2.3",
-    "mongodb": "7.5.0",
+    "mongodb": "7.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
