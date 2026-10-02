@@ -4,7 +4,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      singleWorker: true,
       wrangler: { configPath: "./wrangler.test.jsonc" },
       miniflare: {
         // Bindings used only by tests — kept separate from production secrets.
