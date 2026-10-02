@@ -1,8 +1,10 @@
 # Copy to `.dev.vars` for `wrangler dev`. Never commit the real file.
 
 # --- WorkOS OAuth gate (Authorization Code + PKCE) ---
-# Non-secret values can also live in wrangler.jsonc `vars`.
-WORKOS_AUTHKIT_DOMAIN="https://your-env.authkit.app"  # issuer + OAuth base
+# Non-secret values can also live in wrangler.jsonc `vars` — except the AuthKit
+# domain: REQUIRED, set per environment (a Worker secret in production), never
+# committed. Use your own environment's AuthKit domain here.
+WORKOS_AUTHKIT_DOMAIN="https://<your-env>.authkit.app"  # issuer + OAuth base
 WORKOS_CLIENT_ID="client_..."                          # Connect app client id
 # Pin the flow to one organization and gate on it.
 WORKOS_ORGANIZATION_ID="org_..."
