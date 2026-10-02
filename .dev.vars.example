@@ -7,10 +7,21 @@ WORKOS_CLIENT_ID="client_..."                          # Connect app client id
 # Pin the flow to one organization and gate on it.
 WORKOS_ORGANIZATION_ID="org_..."
 WORKOS_ALLOWED_ORG_IDS="org_..."                       # comma-separated allowlist
-# Permission requested as an OAuth scope; granted only if the user's role holds it.
-WORKOS_REQUIRED_PERMISSION="mongodb:access"
+# Any one of these admits a session; each store's tools then need their own.
+WORKOS_REQUIRED_PERMISSION="mongodb:access,supabase:access,doris:access,cassandra:access,graph:access"
 
 # --- Secrets ---
 # Encrypts the client-approval cookie (any long random string; `openssl rand -hex 32`).
 COOKIE_ENCRYPTION_KEY="..."
-MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net/?retryWrites=true&w=majority"
+
+# MongoDB: read-only user for reads; optional read-write user for writes.
+MONGODB_RO_URI="mongodb+srv://nyuchi_mcp_ro:<password>@<cluster-host>/?authSource=admin"
+# MONGODB_RW_URI="mongodb+srv://nyuchi_mcp_rw:<password>@<cluster-host>/?authSource=admin"
+
+# Supabase: SUPABASE_<KEY>_RO_URL per project (RELATIONAL, PAY, SHAMWARI, MZIZI),
+# through the transaction pooler (port 6543). _RW_URL variants are optional.
+SUPABASE_RELATIONAL_RO_URL="postgresql://nyuchi_mcp_ro.<ref>:pass@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
+
+# Private-network relay (relay/). Same secret as the relay's RELAY_SIGNING_SECRET.
+RELAY_URL="http://localhost:8080"
+RELAY_SIGNING_SECRET="..."

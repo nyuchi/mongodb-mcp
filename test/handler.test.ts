@@ -1,7 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/server";
-import { createMcpHandler } from "agents/mcp/server";
+import { createMcpHandler, getMcpAuthContext } from "agents/mcp/server";
 import type { MongoClient } from "mongodb";
 import { describe, expect, it } from "vitest";
+import { buildServer, type Backends } from "../src/catalogue";
+import { callerFromProps } from "../src/props";
 import { registerMongoTools } from "../src/tools";
 
 // Exercises the stateless path end to end inside workerd: a real SDK v2
@@ -97,5 +99,67 @@ describe("stateless MCP handler", () => {
     const second = (await rpc({ jsonrpc: "2.0", id: 5, method: "tools/list", params: {} }))
       .result as { tools: unknown[] };
     expect(first.tools.length).toBe(second.tools.length);
+  });
+});
+
+// The production factory (src/catalogue.ts) behind the same stateless handler,
+// with OAuth props injected the way the OAuth provider supplies them: what a
+// session can list must follow its WorkOS scopes.
+describe("data MCP handler, gated by scope", () => {
+  const backends: Backends = {
+    mongoRead: () => Promise.reject<MongoClient>(new Error("no cluster in tests")),
+    mongoWrite: () => Promise.reject<MongoClient>(new Error("no cluster in tests")),
+    sql: {
+      configured: () => ({ read: false, write: false }),
+      run: () => Promise.reject(new Error("no db")),
+    },
+    relay: () => Promise.reject(new Error("no relay")),
+  };
+
+  async function listFor(permissions: string[]): Promise<string[]> {
+    const scoped = createMcpHandler(
+      () => buildServer(callerFromProps(getMcpAuthContext()?.props), backends, () => {}),
+      {
+        route: "/mcp",
+        authContext: { props: { user: { id: "user_test" }, permissions } },
+      },
+    );
+    const response = await scoped.fetch(
+      new Request("https://data.nyuchi.dev/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": PROTOCOL_VERSION,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: {},
+        }),
+      }),
+    );
+    const text = await response.text();
+    const frames = text.split("\n").filter((l) => l.startsWith("data:"));
+    const payload = JSON.parse(frames.length ? frames[frames.length - 1].slice(5) : text) as {
+      result?: { tools: { name: string }[] };
+    };
+    return (payload.result?.tools ?? []).map((t) => t.name);
+  }
+
+  it("lists only Doris tools for doris:access", async () => {
+    const names = await listFor(["openid", "doris:access"]);
+    expect(names.length).toBe(8);
+    expect(names.every((n) => n.startsWith("doris_"))).toBe(true);
+  });
+
+  it("adds MongoDB writes only with mongodb:write", async () => {
+    const read = await listFor(["mongodb:access"]);
+    const write = await listFor(["mongodb:access", "mongodb:write"]);
+    expect(read).toContain("mongodb_find");
+    expect(read).not.toContain("mongodb_insertOne");
+    expect(write).toContain("mongodb_insertOne");
+    expect(write.length).toBe(64);
   });
 });

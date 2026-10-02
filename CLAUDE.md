@@ -4,38 +4,51 @@ Project-specific guidance for Claude Code working in this repo.
 
 ## What this is
 
-Authenticated remote **MCP server** for managing MongoDB. Runs on Cloudflare
-Workers, served at `https://mongodb.nyuchi.dev/mcp`. A WorkOS **OAuth**
-(Authorization Code + PKCE) gate fronts `/mcp`; the endpoint never accepts
-unauthenticated traffic. Internal, platform-team-only.
+The **Nyuchi data MCP**: one authenticated remote MCP server for all Nyuchi
+data infrastructure — MongoDB Atlas, Supabase, Apache Doris, Cassandra and
+JanusGraph. An internal **operator** tool (owner + Claude); applications use
+the Nyuchi API, never this. Runs on Cloudflare Workers at
+`https://data.nyuchi.dev/mcp` (`mongodb.nyuchi.dev` stays as an alias during
+the transition). This repository was `nyuchi/mongodb-mcp`; the design, the
+rename and the owner's switch-over steps are in `docs/design/data-mcp.md` —
+read it before changing auth, the relay or credentials.
 
-The Fundi place-ingestion worker (`https://fundi-ingestion.nyuchi.dev/mcp`)
-used to live here under `fundi/`; it moved to `nyuchi/barstool`
-(`workers/fundi-ingestion/`) — Kweli is the places app, so place ingestion
-lives with it. This repo is the MongoDB MCP only.
+The Fundi place-ingestion worker used to live here under `fundi/`; it moved to
+`nyuchi/barstool` (`workers/fundi-ingestion/`).
 
 ## Architecture in one breath
 
 `@cloudflare/workers-oauth-provider` wraps the worker: it serves `/authorize`,
 `/token`, `/register` and gates `/mcp`. `AuthkitHandler` (`src/authkit-handler.ts`)
-runs the WorkOS redirect/callback dance — it sends the user to WorkOS, then on
-`/callback` exchanges the code (PKCE), enforces the org allowlist + the granted
-permission scope, and completes the OAuth grant. Authorized requests reach a
+requests every store permission as an OAuth scope, then on `/callback` admits an
+allowed org holding at least one `<store>:access`. Authorized requests reach a
 **stateless** `/mcp` handler: `createMcpHandler` (`agents/mcp/server`, MCP SDK
-v2) builds a fresh `McpServer` per request and registers all tools from
-`src/tools.ts`.
+v2) builds a fresh `McpServer` per request via `buildServer` (`src/catalogue.ts`),
+and `ToolRegistry.mount` (`src/registry.ts`) registers only the tools the
+session's scopes allow, each wrapped with a call-time re-check and an audit
+line. MongoDB and Supabase are reached directly; Doris, Cassandra and
+JanusGraph live on Fly's private network, so their tools call the relay
+(`relay/`, Fly app `nyuchi-data-relay`) with HMAC-signed requests.
 
-There is no Durable Object. The `MongoClient` is cached at **isolate** scope in
-`src/index.ts` instead of per session, so the driver's pool still amortises
-across requests that land on the same isolate. The client is built inside the
-request path (workerd forbids sockets at module scope) and the cached promise
-is cleared on a failed connect so one bad attempt cannot poison the isolate.
+There is no Durable Object. MongoClients are cached at **isolate** scope in
+`src/index.ts`, one per credential; Supabase pools likewise in
+`src/stores/postgres.ts`. Both are created inside the request path (workerd
+forbids sockets at module scope) and dropped on a failed connect.
 
 ## Where things live
 
 | Path                         | Purpose                                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------------------ |
 | `src/index.ts`               | `OAuthProvider` wiring + stateless `/mcp` handler; isolate-scoped `MongoClient` cache.           |
+| `src/catalogue.ts`           | `buildRegistry` (every store's tools) and `buildServer` (per request, per caller).               |
+| `src/registry.ts`            | `ToolRegistry`: store prefix, read/write from `readOnlyHint`, scope-filtered mount, audit wrap.  |
+| `src/scopes.ts`              | The five stores and their `<store>:access` / `<store>:write` permissions.                        |
+| `src/audit.ts`               | One JSON line per tool call — who, tool, store, outcome, duration; never args or results.        |
+| `src/stores/`                | Supabase tools + `postgres` runner; Doris/Cassandra/graph tools that call the relay.             |
+| `src/relay-client.ts`        | Signs and sends relay calls, carrying the caller inside the signed body.                         |
+| `src/relay-signing.ts`       | HMAC request signing, shared verbatim with the relay — WebCrypto only, no imports.               |
+| `relay/`                     | The Fly relay (Node 24, own package, own tests, `Dockerfile`, `fly.toml`).                       |
+| `docs/design/data-mcp.md`    | Design, decisions, credentials, 1Password fields, owner steps.                                   |
 | `src/authkit-handler.ts`     | WorkOS OAuth flow: `/authorize`, `/callback`, org + permission gate.                             |
 | `src/workers-oauth-utils.ts` | OAuth approval-dialog + client-approval cookie helpers.                                          |
 | `src/tools.ts`               | All MCP tool definitions + annotations + `permissionHint` / `fail` / `assertNotIdentityCommand`. |
@@ -61,7 +74,11 @@ npm run dev            # wrangler dev — needs .dev.vars (see .dev.vars.example
 npm test               # vitest, runs inside workerd
 npm run type-check     # tsc --noEmit
 npm run deploy         # wrangler deploy
+cd relay && npm test   # the relay (node:test); npm run type-check too
 ```
+
+The relay deploys from the repository root (its image needs
+`src/relay-signing.ts`): `fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile`.
 
 ## CI and test infrastructure
 
@@ -118,6 +135,12 @@ and not the other:
   an index is cheap to rebuild, a collection is not.)
 - **`test/access-gate.test.ts`** exercises `checkAccess` from
   `src/authkit-handler.ts` exhaustively, including that it **fails closed**.
+- **`test/registry.test.ts`** is the spec for per-store gating: exact
+  catalogues, access derived from `readOnlyHint` (missing hint = write), every
+  destructive tool behind write, no scopes = no tools, write without access =
+  nothing, the call-time re-check, and audit lines free of arguments and
+  results. `relay/test/ops.test.ts` pins the relay's op table to the Worker's
+  tool lists and checks the write switch.
 
 **The gate fails closed, deliberately.** An unset or blank
 `WORKOS_ALLOWED_ORG_IDS` or `WORKOS_REQUIRED_PERMISSION` returns 500 and admits
@@ -159,14 +182,30 @@ confirmed that way.
   `assertNotIdentityCommand`; extend `IDENTITY_COMMANDS` if MongoDB adds to the
   family. See README → 'Why there is no user or role management'.
 - **`src/landing.ts` is documentation with a public URL.** It lists the tool
-  surface and the role requirements at <https://mongodb.nyuchi.dev>. Any change
+  surface and the role requirements at <https://data.nyuchi.dev>. Any change
   to which tools exist, or to what the `MONGODB_URI` credential should hold,
   has to land there in the same PR — v2.0.0 shipped without it and left the
   public page advertising removed tools and prescribing `userAdmin`.
 - **No comments unless they explain _why_.** This repo follows the global
   rule — prefer expressive names over narration.
 
-## Adding a new MCP tool
+## Adding a tool to another store
+
+Non-MongoDB tools live in `src/stores/` and register through `toolDefiner`
+(`src/stores/common.ts`), the same shape as the MongoDB helper. The rules that
+keep the gate sound:
+
+- **`readOnlyHint` decides the scope.** A tool needs `<store>:write` unless it
+  declares `readOnlyHint: true`; there is no other list to update. Never mark a
+  tool read-only because it "usually" reads — a raw script or statement tool is
+  a write.
+- **Relay-backed tools** need the op added to `relay/src/ops.ts` with the same
+  name and access. Both test suites pin the lists against each other.
+- Add the name to the expected catalogue in `test/registry.test.ts`, the
+  README's "Available tools" and `src/landing.ts`.
+- Never log arguments or results; the audit line is fixed by `ToolRegistry`.
+
+## Adding a new MongoDB tool
 
 1. In `src/tools.ts`, call the local
    `tool(name, description, { …zodSchema }, annotations, async args => { … })`
@@ -191,22 +230,26 @@ confirmed that way.
 - WorkOS OAuth gate: MCP clients sign in via WorkOS AuthKit Authorization Code
   with PKCE against the **Connect** application. `AuthkitHandler` sends the user
   to `${WORKOS_AUTHKIT_DOMAIN}/oauth2/authorize` with `organization_id` pinned
-  and requests `WORKOS_REQUIRED_PERMISSION` (`mongodb:access`) **as an OAuth
-  scope** — the Connect app exposes permissions as scopes. On `/callback` the
-  worker exchanges the code, then gates on two things from the access token:
-  `org_id` must be in `WORKOS_ALLOWED_ORG_IDS`, and the required permission must
-  appear in the granted `scope` claim (WorkOS only grants it when the user's org
-  role holds it). Env: `WORKOS_CLIENT_ID`, `WORKOS_AUTHKIT_DOMAIN`,
-  `WORKOS_ORGANIZATION_ID`, `WORKOS_ALLOWED_ORG_IDS`, `WORKOS_REQUIRED_PERMISSION`;
-  secrets `COOKIE_ENCRYPTION_KEY` and `MONGODB_URI`; `OAUTH_KV` stores PKCE/grant
-  state. Note: the Connect/OAuth token surfaces permissions via the `scope`
-  claim, not a `permissions` array — gate on the granted scope.
-- MongoDB gate: the `MONGODB_URI` user must hold the privilege for whichever
-  tool is invoked. See the role table in the README. `permissionHint()`
-  detects codes 13/18/31/33 and `"not authorized on"` messages, then appends
-  a role-grant pointer to the error response. That credential must **never**
-  hold `userAdmin` / `userAdminAnyDatabase` / `root`: nothing here needs them
-  and they cannot be scoped, so granting one would let any caller escalate.
+  and requests all ten store permissions (`ALL_STORE_SCOPES`) **as OAuth
+  scopes**; WorkOS grants only those the user's org role holds. On `/callback`
+  `checkAccess` requires `org_id` in `WORKOS_ALLOWED_ORG_IDS` and at least one
+  permission from `WORKOS_REQUIRED_PERMISSION` (comma-separated, any-of: the
+  five `<store>:access`). Both fail closed. The token surfaces permissions via
+  the `scope` claim, not a `permissions` array.
+- Per store: `<store>:access` opens its read tools; `<store>:write` is needed
+  on top for anything else. `isPermitted` matches exactly.
+- Env: vars `WORKOS_CLIENT_ID`, `WORKOS_ORGANIZATION_ID`,
+  `WORKOS_ALLOWED_ORG_IDS`, `WORKOS_REQUIRED_PERMISSION`, `RELAY_URL`; secrets
+  `WORKOS_AUTHKIT_DOMAIN` (a secret, not a var — see the design doc),
+  `COOKIE_ENCRYPTION_KEY`, `MONGODB_RO_URI`, `MONGODB_RW_URI` (optional),
+  `SUPABASE_<KEY>_RO_URL` / `_RW_URL`, `RELAY_SIGNING_SECRET`. `OAUTH_KV`
+  stores PKCE/grant state. The full 1Password field list is in the design doc.
+- MongoDB credentials: reads always run as `MONGODB_RO_URI`; the catalogue is
+  registered twice so write tools get `MONGODB_RW_URI`. Neither may hold
+  `userAdmin` / `userAdminAnyDatabase` / `root`. `permissionHint()` still names
+  `MONGODB_URI` in its text (tests pin it); read it as whichever was used.
+- Relay: signed requests only (±60 s, single-use nonce, body hash); it repeats
+  the scope check and refuses writes to stores not in `RELAY_ALLOW_WRITES`.
 
 ## Workers-runtime gotchas
 

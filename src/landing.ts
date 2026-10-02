@@ -191,8 +191,8 @@ export function landingHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MongoDB MCP — Nyuchi</title>
-<meta name="description" content="Authenticated remote Model Context Protocol server for MongoDB, running on Cloudflare Workers with WorkOS OAuth.">
+<title>Nyuchi Data MCP</title>
+<meta name="description" content="Operator Model Context Protocol server for Nyuchi's data stores — MongoDB, Supabase, Apache Doris, Cassandra and JanusGraph — on Cloudflare Workers with WorkOS OAuth.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="${ICON_HREF}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -205,7 +205,7 @@ export function landingHtml(): string {
     <div class="container row">
       <a class="wordmark" href="/">
         <img src="${ICON_HREF}" alt="" width="24" height="24">
-        <span>MongoDB MCP</span>
+        <span>Nyuchi Data MCP</span>
       </a>
       <a class="nav-link" href="https://nyuchi.com">nyuchi.com →</a>
     </div>
@@ -213,24 +213,25 @@ export function landingHtml(): string {
   <main>
     <div class="container">
       <span class="badge">Nyuchi · Infrastructure</span>
-      <h1>An authenticated MCP for your MongoDB clusters.</h1>
+      <h1>One authenticated MCP for all of Nyuchi's data.</h1>
       <p class="lead">
         Point Claude Desktop, Cursor, or any Model Context Protocol client at
-        <code>https://mongodb.nyuchi.dev/mcp</code>, sign in through WorkOS,
-        and the worker brokers every query — reads, writes, indexes, admin
-        commands — against the cluster you have access to.
+        <code>https://data.nyuchi.dev/mcp</code>, sign in through WorkOS, and
+        the worker brokers queries to MongoDB, Supabase, Apache Doris,
+        Cassandra and JanusGraph — read-only unless you also hold a store's
+        write permission.
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#connect">Connect a client</a>
-        <a class="btn btn-ghost" href="https://github.com/nyuchi/mongodb-mcp">View on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/nyuchi/data-mcp">View on GitHub</a>
       </div>
 
       <h2 id="connect">Connect</h2>
       <p style="color: var(--color-fg-muted); font-size: 0.9375rem;">
         This is an internal service. On first connect your client opens a
         WorkOS <strong>sign-in</strong> page — authenticate with an account in
-        the allowed organization that holds the <code>mongodb:access</code>
-        permission. The client caches and refreshes the OAuth session itself, so
+        the allowed organization that holds at least one store's
+        <code>&lt;store&gt;:access</code> permission. The client caches and refreshes the OAuth session itself, so
         there is no token or header to manage. Clients without native remote
         support use the <code>mcp-remote</code> proxy snippet, which runs the
         sign-in for them.
@@ -239,12 +240,12 @@ export function landingHtml(): string {
         <details open>
           <summary>Claude Desktop / Claude Code (CLI)</summary>
           <div>
-            <p>CLI shortcut: <code>claude mcp add mongodb https://mongodb.nyuchi.dev/mcp --transport http</code>. Or paste this into <code>~/.claude.json</code> / <code>claude_desktop_config.json</code>:</p>
+            <p>CLI shortcut: <code>claude mcp add nyuchi-data https://data.nyuchi.dev/mcp --transport http</code>. Or paste this into <code>~/.claude.json</code> / <code>claude_desktop_config.json</code>:</p>
             <pre><code>{
   "mcpServers": {
-    "mongodb": {
+    "nyuchi-data": {
       "type": "http",
-      "url": "https://mongodb.nyuchi.dev/mcp"
+      "url": "https://data.nyuchi.dev/mcp"
     }
   }
 }</code></pre>
@@ -256,8 +257,8 @@ export function landingHtml(): string {
             <p>Drop into <code>~/.cursor/mcp.json</code> (user) or <code>.cursor/mcp.json</code> (project):</p>
             <pre><code>{
   "mcpServers": {
-    "mongodb": {
-      "url": "https://mongodb.nyuchi.dev/mcp"
+    "nyuchi-data": {
+      "url": "https://data.nyuchi.dev/mcp"
     }
   }
 }</code></pre>
@@ -269,9 +270,9 @@ export function landingHtml(): string {
             <p>Native MCP since VS Code 1.99. Add to <code>.vscode/mcp.json</code>:</p>
             <pre><code>{
   "servers": {
-    "mongodb": {
+    "nyuchi-data": {
       "type": "http",
-      "url": "https://mongodb.nyuchi.dev/mcp"
+      "url": "https://data.nyuchi.dev/mcp"
     }
   }
 }</code></pre>
@@ -281,9 +282,9 @@ export function landingHtml(): string {
           <summary>Codex CLI (OpenAI)</summary>
           <div>
             <p>Add to <code>~/.codex/config.toml</code>:</p>
-            <pre><code>[mcp_servers.mongodb]
+            <pre><code>[mcp_servers.nyuchi-data]
 command = "npx"
-args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
+args = ["-y", "mcp-remote", "https://data.nyuchi.dev/mcp"]</code></pre>
           </div>
         </details>
         <details>
@@ -292,8 +293,8 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
             <p>Add to <code>~/.gemini/settings.json</code>:</p>
             <pre><code>{
   "mcpServers": {
-    "mongodb": {
-      "httpUrl": "https://mongodb.nyuchi.dev/mcp"
+    "nyuchi-data": {
+      "httpUrl": "https://data.nyuchi.dev/mcp"
     }
   }
 }</code></pre>
@@ -305,9 +306,9 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
             <p>Wrap with the <code>mcp-remote</code> proxy:</p>
             <pre><code>{
   "mcpServers": {
-    "mongodb": {
+    "nyuchi-data": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://data.nyuchi.dev/mcp"]
     }
   }
 }</code></pre>
@@ -316,6 +317,34 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
       </div>
 
       <h2>What's inside</h2>
+      <p>
+        Tools are grouped by store and named with its prefix. Each store's read
+        tools need <code>&lt;store&gt;:access</code>; anything that changes data
+        also needs <code>&lt;store&gt;:write</code>. A session sees only the
+        tools it may call.
+      </p>
+      <ul class="tools">
+        <li>
+          <strong>Supabase</strong>
+          <div class="desc"><code>supabase_listProjects</code>, <code>supabase_listTables</code>, <code>supabase_describeTable</code>, <code>supabase_query</code> (read-only); <code>supabase_execute</code> (write)</div>
+        </li>
+        <li>
+          <strong>Apache Doris</strong>
+          <div class="desc">Apache Doris MCP's eight domains — <code>doris_catalog</code>, <code>doris_query</code>, <code>doris_cluster</code>, <code>doris_pipeline</code>, <code>doris_search</code>, <code>doris_governance</code>, <code>doris_lakehouse</code>, <code>doris_semantic</code> — all read-only</div>
+        </li>
+        <li>
+          <strong>Cassandra</strong>
+          <div class="desc"><code>cassandra_listKeyspaces</code>, <code>cassandra_listTables</code>, <code>cassandra_describeTable</code>, <code>cassandra_select</code>; <code>cassandra_execute</code> (write)</div>
+        </li>
+        <li>
+          <strong>JanusGraph</strong>
+          <div class="desc"><code>graph_summary</code>, <code>graph_findVertices</code>, <code>graph_neighbours</code>; <code>graph_gremlin</code> (write)</div>
+        </li>
+      </ul>
+      <p>
+        <strong>MongoDB</strong> — every tool below, prefixed <code>mongodb_</code>
+        (<code>find</code> is <code>mongodb_find</code>):
+      </p>
       <ul class="tools">
         <li>
           <strong>Discovery</strong>
@@ -350,9 +379,11 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
 
       <h2 id="roles">MongoDB user role requirements</h2>
       <p>
-        The MCP can only do what the user in your <code>MONGODB_URI</code> is
-        authorised to do. Grant the smallest role that covers your usage —
-        permission-denied responses include a hint pointing to this table:
+        Reads run as a read-only user (<code>readAnyDatabase</code> +
+        <code>clusterMonitor</code>); writes, where enabled, as a separate
+        read-write user. Each can only do what its roles allow — grant the
+        smallest role that covers your usage; permission-denied responses
+        include a hint pointing to this table:
       </p>
       <table class="roles">
         <thead>
@@ -374,8 +405,8 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
           <tr>
             <td>Creating users or granting roles — <strong>not offered by this server</strong></td>
             <td>
-              <strong>Never grant <code>userAdmin</code></strong> to the
-              <code>MONGODB_URI</code> credential
+              <strong>Never grant <code>userAdmin</code></strong> to either
+              MongoDB credential
             </td>
           </tr>
           <tr>
@@ -389,25 +420,28 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]</code></pre>
         </tbody>
       </table>
       <p style="margin-top: var(--space-base); font-size: 0.9375rem; color: var(--color-fg-muted);">
-        Full setup notes are in the <a href="https://github.com/nyuchi/mongodb-mcp#mongodb-user-role-requirements">README</a>.
+        Full setup notes are in the <a href="https://github.com/nyuchi/data-mcp#4-mongodb-user-role-requirements">README</a>.
       </p>
 
       <h2>How auth works</h2>
       <p>
         The <code>/mcp</code> endpoint is gated by <a href="https://workos.com/authkit">WorkOS</a>
         <strong>OAuth</strong> (Authorization Code + PKCE). There is no public
-        surface — clients sign in through WorkOS, and the worker double-gates the
-        session before a single MongoDB query runs: the organization must be in
-        the allowlist, and the <code>mongodb:access</code> permission must be
-        present in the granted OAuth scope (WorkOS grants it only to users whose
-        org role holds it). It fails closed when unconfigured.
+        surface — clients sign in through WorkOS, and the worker gates the
+        session before a single query runs: the organization must be in the
+        allowlist, and each store's tools need that store's permission in the
+        granted OAuth scope (WorkOS grants a permission only to users whose org
+        role holds it). It fails closed when unconfigured, and every tool call
+        is audit-logged without its arguments or results. Doris, Cassandra and
+        JanusGraph sit on a private network, reached through a relay that
+        accepts only signed requests from this worker.
       </p>
     </div>
   </main>
   <footer class="site">
     <div class="container row">
       <span>Part of the <a href="https://nyuchi.com">Nyuchi</a> ecosystem.</span>
-      <a href="https://github.com/nyuchi/mongodb-mcp">Source · MIT</a>
+      <a href="https://github.com/nyuchi/data-mcp">Source · MIT</a>
     </div>
   </footer>
 </body>
