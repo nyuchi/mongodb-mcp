@@ -536,7 +536,11 @@ step_data_mcp() {
    stages its secrets and deploys it from the repository root. Check
    `fly ips list -a nyuchi-data-relay` shows the shared IPv4 and an IPv6, that
    `/healthz` answers 200 and an unsigned `POST /v1/call` answers 401.
-6. **Deploy the Worker**: `npm run deploy` from the repository. The
+6. **Deploy the Worker** — by merging this PR. The `mongodb-mcp` Worker is
+   connected to **Cloudflare Workers Builds**, which deploys `main` to
+   production on every merge, so **do not merge until steps 1–5 are done**
+   (otherwise the deployed worker requests scopes WorkOS does not know and has
+   no `MONGODB_RO_URI`). `npm run deploy` does the same by hand. The
    `data.nyuchi.dev` custom-domain route makes Cloudflare create the DNS record
    and certificate itself (the `nyuchi.dev` zone is in the same account); only
    if a record for `data.nyuchi.dev` already exists does it need removing
