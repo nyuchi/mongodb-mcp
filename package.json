@@ -34,7 +34,7 @@
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3",
     "vite-plus": "^1.0.0",
-    "vitest": "^4.1.9",
+    "vitest": "^5.0.2",
     "wrangler": "^4.124.0"
   },
   "overrides": {
