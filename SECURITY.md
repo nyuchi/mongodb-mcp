@@ -2,8 +2,9 @@
 
 ## Supported versions
 
-Only the currently deployed revision of `mongodb-mcp` — the `main` branch,
-served at `https://mongodb.nyuchi.dev/mcp` — is supported. Cloudflare Workers
+Only the currently deployed revision of the data MCP — the `main` branch,
+served at `https://data.nyuchi.dev/mcp` (and, during the transition,
+`https://mongodb.nyuchi.dev/mcp`) — is supported. Cloudflare Workers
 rollouts atomically replace older revisions, so there are no back-versions to
 patch.
 
@@ -45,7 +46,10 @@ reporters in release notes unless you prefer to remain anonymous.
 
 In scope:
 
-- the deployed worker at `https://mongodb.nyuchi.dev/*`,
+- the deployed worker at `https://data.nyuchi.dev/*` and
+  `https://mongodb.nyuchi.dev/*`,
+- the private-network relay (`relay/`, `https://nyuchi-data-relay.fly.dev`),
+  including its request signing (`src/relay-signing.ts`),
 - the source in this repository,
 - the WorkOS OAuth flow and org/permission gate in `src/authkit-handler.ts`,
   the `OAuthProvider` wiring in `src/index.ts`, and the client-approval cookie

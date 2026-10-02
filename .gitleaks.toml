@@ -11,6 +11,7 @@ paths = [
   '''wrangler\.test\.jsonc''',
   '''\.dev\.vars\.example''',
   '''test/.*\.test\.ts''',
+  '''relay/test/.*\.test\.ts''',
 ]
 regexes = [
   # Cookie encryption test fixture — 64 hex zeros pattern, never a real key.

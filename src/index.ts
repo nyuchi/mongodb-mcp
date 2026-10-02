@@ -1,51 +1,57 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
-import { McpServer } from "@modelcontextprotocol/server";
-import { createMcpHandler } from "agents/mcp/server";
+import { createMcpHandler, getMcpAuthContext } from "agents/mcp/server";
 import type { MongoClient } from "mongodb";
+import { consoleAuditSink } from "./audit";
 import { AuthkitHandler } from "./authkit-handler";
+import { buildServer } from "./catalogue";
 import { buildClient } from "./mongo";
-import { registerMongoTools } from "./tools";
+import { callerFromProps } from "./props";
+import { relayCaller } from "./relay-client";
+import { postgresRunner } from "./stores/postgres";
 
-// The worker is stateless: each /mcp request builds a fresh McpServer, so there
-// is no Durable Object left to hold a connection. What does survive between
-// requests is the isolate, so the MongoClient lives here instead and the
-// driver's own pool rides along with it. The promise is created inside the
-// request path — workerd refuses to open sockets at module scope — and cleared
-// on failure so one bad connect does not poison the isolate for its lifetime.
-let clientPromise: Promise<MongoClient> | undefined;
+// The worker is stateless: each /mcp request builds a fresh McpServer. What
+// survives between requests is the isolate, so MongoClients live here, one per
+// connection string (read-only and read-write are separate users). Each is
+// created inside the request path — workerd refuses sockets at module scope —
+// and dropped on a failed connect so one bad attempt cannot poison the isolate.
+const mongoClients = new Map<string, Promise<MongoClient>>();
 
-function getClient(uri: string): Promise<MongoClient> {
-  clientPromise ??= (async () => {
-    const client = buildClient(uri);
-    await client.connect();
-    return client;
-  })().catch((e: unknown) => {
-    clientPromise = undefined;
-    throw e;
-  });
-  return clientPromise;
+function mongoClient(uri: string | undefined, secretName: string): Promise<MongoClient> {
+  if (!uri) {
+    return Promise.reject(new Error(`${secretName} is not configured on this worker.`));
+  }
+  let client = mongoClients.get(uri);
+  if (!client) {
+    client = (async () => {
+      const c = buildClient(uri);
+      await c.connect();
+      return c;
+    })();
+    client.catch(() => mongoClients.delete(uri));
+    mongoClients.set(uri, client);
+  }
+  return client;
 }
 
-// Built once per isolate. The factory inside runs per request and hands that
-// request its own McpServer, which is what makes the endpoint stateless.
+// Built once per isolate. The factory runs per request inside the OAuth
+// provider's auth context, so getMcpAuthContext() returns this caller's props
+// and the server it builds carries only the tools their scopes allow.
 let handler: ReturnType<typeof createMcpHandler> | undefined;
 
-function getHandler(uri: string) {
+function getHandler(env: Env) {
   handler ??= createMcpHandler(
     () => {
-      const server = new McpServer({
-        name: "mongodb-mcp",
-        title: "MongoDB MCP",
-        version: "0.1.21",
-        description:
-          "Authenticated remote Model Context Protocol server for managing MongoDB clusters.",
-        websiteUrl: "https://mongodb.nyuchi.dev",
-        icons: [
-          { src: "https://mongodb.nyuchi.dev/icon.svg", mimeType: "image/svg+xml", sizes: ["any"] },
-        ],
-      });
-      registerMongoTools(server, () => getClient(uri));
-      return server;
+      const caller = callerFromProps(getMcpAuthContext()?.props);
+      return buildServer(
+        caller,
+        {
+          mongoRead: () => mongoClient(env.MONGODB_RO_URI, "MONGODB_RO_URI"),
+          mongoWrite: () => mongoClient(env.MONGODB_RW_URI, "MONGODB_RW_URI"),
+          sql: postgresRunner(env as unknown as Record<string, unknown>),
+          relay: relayCaller({ url: env.RELAY_URL, secret: env.RELAY_SIGNING_SECRET }, caller),
+        },
+        consoleAuditSink,
+      );
     },
     { route: "/mcp" },
   );
@@ -54,13 +60,7 @@ function getHandler(uri: string) {
 
 const mcpApiHandler = {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const uri = env.MONGODB_URI;
-    if (!uri) {
-      return Promise.resolve(
-        new Response("MONGODB_URI is not configured on the worker.", { status: 500 }),
-      );
-    }
-    return getHandler(uri)(request, env, ctx);
+    return getHandler(env)(request, env, ctx);
   },
 };
 

@@ -31,7 +31,7 @@ describe("checkAccess", () => {
       });
     }
 
-    for (const requiredPermission of [undefined, "", "   "]) {
+    for (const requiredPermission of [undefined, "", "   ", ",", " , "]) {
       it(`refuses when WORKOS_REQUIRED_PERMISSION is ${JSON.stringify(requiredPermission)}`, () => {
         const denial = checkAccess({ ...configured, requiredPermission }, authorized);
         expect(denial).not.toBeNull();
@@ -77,6 +77,22 @@ describe("checkAccess", () => {
           403,
         );
       }
+    });
+
+    it("reads WORKOS_REQUIRED_PERMISSION as any-of, so one store's access is enough to enter", () => {
+      const config = {
+        ...configured,
+        requiredPermission:
+          "mongodb:access, supabase:access,doris:access ,cassandra:access,graph:access",
+      };
+      expect(checkAccess(config, { ...authorized, permissions: ["doris:access"] })).toBeNull();
+      expect(checkAccess(config, { ...authorized, permissions: ["graph:access"] })).toBeNull();
+      const denial = checkAccess(config, {
+        ...authorized,
+        permissions: ["openid", "doris:write", "graph:acces"],
+      });
+      expect(denial?.status).toBe(403);
+      expect(denial?.message).toContain("one of");
     });
 
     it("checks the org before the permission, so an outsider is never told which permission to seek", () => {

@@ -4,6 +4,7 @@ import * as jose from "jose";
 import { iconSvg } from "./icon";
 import { landingHtml } from "./landing";
 import type { Props } from "./props";
+import { ALL_STORE_SCOPES } from "./scopes";
 import {
   addApprovedClient,
   bindStateToSession,
@@ -39,12 +40,12 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   await env.OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
 
   const redirectUri = new URL("/callback", requestUrl).href;
-  // The Connect app exposes permissions as OAuth scopes. Request the required
-  // permission so WorkOS grants it (in the token's `scope` claim) only when the
-  // user's org role actually holds it.
-  const scopes = ["openid", "email", "profile"];
-  const requiredPermission = (env.WORKOS_REQUIRED_PERMISSION || "").trim();
-  if (requiredPermission) scopes.push(requiredPermission);
+  // The Connect app exposes permissions as OAuth scopes. Request every store's
+  // access and write permission; WorkOS grants (in the token's `scope` claim)
+  // only those the user's org role actually holds, and the tool layer shows
+  // each store's tools according to what came back. Every one of these must
+  // exist as a permission in WorkOS, or the authorize request is rejected.
+  const scopes = ["openid", "email", "profile", ...ALL_STORE_SCOPES];
   const params = new URLSearchParams({
     client_id: env.WORKOS_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -71,8 +72,13 @@ export type AccessDenial = { status: 403 | 500; message: string };
  * Both checks fail CLOSED. An unset or blank `WORKOS_ALLOWED_ORG_IDS` or
  * `WORKOS_REQUIRED_PERMISSION` is a misconfigured deployment, not an
  * invitation to skip the check — treating it as "no restriction" would let
- * any WorkOS user of any organization reach the MongoDB tool surface, which
- * is the one thing this gate exists to prevent.
+ * any WorkOS user of any organization reach the tool surface, which is the
+ * one thing this gate exists to prevent.
+ *
+ * `WORKOS_REQUIRED_PERMISSION` is a comma-separated list read as "any of":
+ * the front door admits a session holding at least one store's
+ * `<store>:access`. Which tools that session then sees is decided per store
+ * (src/registry.ts), so holding `doris:access` alone shows Doris tools only.
  */
 export function checkAccess(
   config: { allowedOrgIds?: string; requiredPermission?: string },
@@ -96,18 +102,25 @@ export function checkAccess(
     };
   }
 
-  const requiredPermission = (config.requiredPermission ?? "").trim();
-  if (!requiredPermission) {
+  const acceptedPermissions = (config.requiredPermission ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (acceptedPermissions.length === 0) {
     return {
       status: 500,
       message:
         "This MCP server is misconfigured: WORKOS_REQUIRED_PERMISSION is not set, so no permission can be verified. Refusing the request.",
     };
   }
-  if (!session.permissions.includes(requiredPermission)) {
+  if (!acceptedPermissions.some((permission) => session.permissions.includes(permission))) {
+    const wanted =
+      acceptedPermissions.length === 1
+        ? `"${acceptedPermissions[0]}"`
+        : `one of ${acceptedPermissions.map((p) => `"${p}"`).join(", ")}`;
     return {
       status: 403,
-      message: `Missing required permission "${requiredPermission}". Ask your WorkOS admin to grant it.`,
+      message: `Missing required permission ${wanted}. Ask your WorkOS admin to grant it.`,
     };
   }
 
@@ -160,9 +173,9 @@ app.get("/authorize", async (c) => {
     csrfToken,
     server: {
       description:
-        "Authenticated MCP for managing MongoDB. WorkOS verifies your identity before the MCP client gets access.",
+        "Operator MCP for Nyuchi's data stores (MongoDB, Supabase, Doris, Cassandra, JanusGraph). WorkOS verifies your identity and permissions before the MCP client gets access.",
       logo: new URL("/icon.svg", c.req.url).href,
-      name: "MongoDB MCP",
+      name: "Nyuchi Data MCP",
     },
     setCookie,
     state: { oauthReqInfo },

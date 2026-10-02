@@ -1,24 +1,30 @@
-# MongoDB MCP
+# Nyuchi Data MCP
 
-> An authenticated remote Model Context Protocol server for operating MongoDB
-> clusters — 63 tools, on Cloudflare Workers, behind a WorkOS OAuth gate.
+> One authenticated remote Model Context Protocol server for all of Nyuchi's
+> data infrastructure — MongoDB Atlas, Supabase, Apache Doris, Cassandra and
+> JanusGraph — on Cloudflare Workers, behind a WorkOS OAuth gate, with a small
+> relay on Fly for the stores that live on Fly's private network.
 
-[![CI](https://github.com/nyuchi/mongodb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nyuchi/mongodb-mcp/actions/workflows/ci.yml)
-[![Security](https://github.com/nyuchi/mongodb-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/nyuchi/mongodb-mcp/actions/workflows/security.yml)
+[![CI](https://github.com/nyuchi/data-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nyuchi/data-mcp/actions/workflows/ci.yml)
+[![Security](https://github.com/nyuchi/data-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/nyuchi/data-mcp/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat-square&logo=cloudflare&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB_driver-7.5-47A248?style=flat-square&logo=mongodb&logoColor=white)
+![Fly.io](https://img.shields.io/badge/Fly.io-relay-8B5CF6?style=flat-square)
 ![Auth](https://img.shields.io/badge/Auth-WorkOS_OAuth_2.1-6363F1?style=flat-square)
 
-**Endpoint:** `https://mongodb.nyuchi.dev/mcp` | **Version:** 0.1.21 |
-**Deploy:** Cloudflare Workers
+**Endpoint:** `https://data.nyuchi.dev/mcp` (alias during the transition:
+`https://data.nyuchi.dev/mcp`) | **Deploy:** Cloudflare Workers + Fly
+
+This repository was `nyuchi/mongodb-mcp`. The design, the decision to rename
+it, the relay, the credentials and the owner's switch-over steps are in
+[`docs/design/data-mcp.md`](docs/design/data-mcp.md).
 
 ---
 
 ## Connect to it
 
 ```text
-https://mongodb.nyuchi.dev/mcp
+https://data.nyuchi.dev/mcp
 ```
 
 **A bare request returns `401`, and that is correct.** Every call rides on a
@@ -27,75 +33,99 @@ RFC 9728 challenge pointing a compliant client at the authorization server, so
 it runs the sign-in itself:
 
 ```console
-$ curl -s -D - -o /dev/null https://mongodb.nyuchi.dev/mcp
+$ curl -s -D - -o /dev/null https://data.nyuchi.dev/mcp
 HTTP/2 401
 www-authenticate: Bearer realm="OAuth",
-  resource_metadata="https://mongodb.nyuchi.dev/.well-known/oauth-protected-resource/mcp"
+  resource_metadata="https://data.nyuchi.dev/.well-known/oauth-protected-resource/mcp"
 ```
 
 A `404` or a DNS failure would mean the server is down. A `401` with that
 header means it is up and gating correctly.
 
-Access is **platform-team only**: the access token's `org_id` must be in
-`WORKOS_ALLOWED_ORG_IDS` and the token must carry the `mongodb:access`
-permission. You can also stand the worker up under your own Cloudflare account
-against your own cluster — see [Set up your own MCP
-server](#set-up-your-own-mcp-server).
+Access is **operator only** (the owner and Claude): the access token's
+`org_id` must be in `WORKOS_ALLOWED_ORG_IDS`, and which tools a session sees
+depends on the store permissions it holds — see [Permissions](#permissions).
 
 ## What it is
 
-An internal Nyuchi platform tool. It exposes MongoDB administration and query
-operations to any MCP-speaking client — discovery, reads, writes, indexes,
-administration — so a database can be inspected and operated from an agent
-session instead of a shell, with the same authorization the rest of the
-platform uses.
+An internal Nyuchi operator tool. Applications reach data only through the
+Nyuchi API; this server is how the owner, and Claude working with the owner,
+inspect and operate the stores themselves, with least-privilege credentials
+and every call audit-logged.
 
-Two deliberate limits shape it. It exposes **no identity management**: no tool
-creates or modifies MongoDB users or roles, and `runCommand` refuses those
-commands too. And six irreversible tools refuse to run without `confirm: true`,
-with `deleteMany` additionally refusing a match-everything filter unless
-confirmed.
+It is **read-only by default**. Each store has an access permission that opens
+its read tools and a separate write permission that is needed, on top, for
+anything that changes data. Credentials follow the same split: reads run as a
+read-only database user, writes (where enabled at all) as a separate one.
 
 ## Architecture
 
 ```text
-MCP client ──OAuth──> Cloudflare Worker ──> WorkOS AuthKit (sign in)
-   │                       /authorize,/token,/callback        │
-   │                                                          ▼
-   └────────── authorized request ──> /mcp handler (stateless) ──> MongoDB
+MCP client ──OAuth──> Cloudflare Worker (data.nyuchi.dev) ──> WorkOS AuthKit
+                        │  one MCP server, tools per store, gated per store
+                        ├──> MongoDB Atlas      (TLS, read-only user by default)
+                        ├──> Supabase × 4       (Supavisor, read-only role by default)
+                        └──> relay on Fly (HTTPS, HMAC-signed)
+                               └── Fly 6PN ──> Doris (via Apache Doris MCP), Cassandra, JanusGraph
 ```
 
 - `@cloudflare/workers-oauth-provider` fronts the worker, serving `/authorize`,
   `/token`, and `/register` and gating `/mcp`.
-- On sign-in, `AuthkitHandler` (`src/authkit-handler.ts`) redirects the user to
-  WorkOS, then on `/callback` exchanges the code (PKCE) and enforces the gate:
-  the access token's `org_id` must be in `WORKOS_ALLOWED_ORG_IDS`, and the
-  required permission (`mongodb:access`) must appear in the granted `scope`.
-  The Connect app exposes permissions **as OAuth scopes**, so the worker
-  requests the permission as a scope and WorkOS grants it only when the user's
-  org role holds it.
+- On sign-in, `AuthkitHandler` (`src/authkit-handler.ts`) sends the user to
+  WorkOS requesting every store permission as an OAuth scope; WorkOS grants
+  only those the user's org role holds. On `/callback` the gate admits an
+  allowed `org_id` holding at least one `<store>:access`. Both checks fail
+  closed.
 - `/mcp` is **stateless**: `createMcpHandler` (from `agents/mcp/server`, on MCP
-  SDK v2) builds a fresh `McpServer` for each request. There is no Durable
-  Object and no server-side session, so any isolate can serve any request.
-- The `MongoClient` is cached per **isolate** rather than per session, and the
-  driver's own connection pool rides along with it. The client is created
-  inside the request path — workerd will not open sockets at module scope — and
-  discarded on a failed connect so one bad attempt cannot poison the isolate.
-- All MongoDB operations are registered as MCP tools in `src/tools.ts`, each
-  carrying a human-friendly `title` and behavioural annotations
-  (`readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`) so
-  clients can auto-approve safe reads and warn before destructive operations.
-
-**No identity management.** This server exposes no tool that creates or
-modifies MongoDB users or roles, and `runCommand` refuses those commands too.
-See [Why there is no user or role management](#why-there-is-no-user-or-role-management).
+  SDK v2) builds a fresh `McpServer` per request (`src/catalogue.ts`), and
+  `ToolRegistry` (`src/registry.ts`) mounts only the tools that request's
+  session may use, wrapping each with a call-time scope re-check and an audit
+  line.
+- MongoDB clients are cached per isolate (one per credential); Supabase uses
+  `postgres` with one small pool per connection string.
+- Doris, Cassandra and JanusGraph listen only on Fly's private network, which a
+  Worker cannot reach. Their tools call the relay (`relay/`, Fly app
+  `nyuchi-data-relay`), which verifies the Worker's signature, repeats the
+  scope check, keeps writes off unless explicitly enabled, and talks to the
+  stores over 6PN. Doris goes through **Apache Doris MCP 1.0**, run by the
+  relay as a stdio child process.
 
 > **Client note:** any MCP client that speaks remote OAuth (Claude's hosted
 > connector, Claude Code, Cursor, VS Code, …) can connect directly — it runs
 > the browser sign-in itself. Clients without native remote support use the
 > `mcp-remote` proxy snippet below, which performs the OAuth dance for them.
 
+## Permissions
+
+| Store      | Read tools need    | Mutating tools also need |
+| ---------- | ------------------ | ------------------------ |
+| MongoDB    | `mongodb:access`   | `mongodb:write`          |
+| Supabase   | `supabase:access`  | `supabase:write`         |
+| Doris      | `doris:access`     | `doris:write`            |
+| Cassandra  | `cassandra:access` | `cassandra:write`        |
+| JanusGraph | `graph:access`     | `graph:write`            |
+
+A tool is a "read tool" only if it declares `readOnlyHint: true`; everything
+else needs the write permission too. `tools/list` shows only what the session
+may call. Writes to the relay's stores additionally need the relay's
+`RELAY_ALLOW_WRITES` switch for that store.
+
+### Audit log
+
+Every tool call logs one JSON line — user, email, organisation, tool, store,
+read/write, outcome (`ok` / `error` / `denied`) and duration — to Workers Logs.
+Arguments, query text and results are never logged.
+
 ## Available tools
+
+Every tool name starts with its store.
+
+### MongoDB (`mongodb_*`)
+
+The full MongoDB tool set, each name prefixed with `mongodb_` (`find` is
+`mongodb_find`). Read tools run as the read-only user (`MONGODB_RO_URI`);
+everything else needs `mongodb:write` and runs as the read-write user
+(`MONGODB_RW_URI`), which is optional — without it, write tools refuse.
 
 Discovery: `listDatabases`, `listCollections`, `dbStats`, `collStats`, `ping`,
 `serverStatus`, `hostInfo`, `buildInfo`, `connectionStatus`, `listCommands`.
@@ -124,6 +154,35 @@ authenticated as and exactly which privileges it holds — start there when a
 tool comes back with "not authorized". `hideIndex` lets you retire an index
 safely: hide it, watch for regressions, then `dropIndex` once you are sure.
 
+### Supabase (`supabase_*`)
+
+`supabase_listProjects`, `supabase_listTables`, `supabase_describeTable`,
+`supabase_query` (one read-only statement, as the read-only role, inside a
+`READ ONLY` transaction, row-capped); write: `supabase_execute` (needs
+`supabase:write`, a configured `SUPABASE_<KEY>_RW_URL` and `confirm: true`).
+Projects: `nyuchi_relational_db`, `nyuchi_pay_db`, `shamwari_ai_db`,
+`mzizi_db`.
+
+### Doris (`doris_*`, via Apache Doris MCP)
+
+The eight domain tools of Apache Doris MCP 1.0: `doris_catalog`,
+`doris_query`, `doris_cluster`, `doris_pipeline`, `doris_search`,
+`doris_governance`, `doris_lakehouse`, `doris_semantic`. Call one with `{}` to
+discover its children, then call it again with `child_tool`, `arguments` and
+the `manifest_version` discovery returned. Doris MCP's catalogue is read-only.
+
+### Cassandra (`cassandra_*`)
+
+`cassandra_listKeyspaces`, `cassandra_listTables`, `cassandra_describeTable`,
+`cassandra_select` (one `SELECT`, row-capped); write: `cassandra_execute`
+(`INSERT` / `UPDATE` / `DELETE` / `BATCH` only — no schema changes).
+
+### JanusGraph (`graph_*`)
+
+`graph_summary`, `graph_findVertices`, `graph_neighbours` — built by the relay
+from structured arguments with TinkerPop's `ReadOnlyStrategy` attached; write:
+`graph_gremlin` (a raw Gremlin script, so it needs `graph:write`).
+
 ### Why there is no user or role management
 
 Creating or altering MongoDB users and roles requires the `userAdmin`
@@ -138,7 +197,8 @@ anyone who reaches the MCP could mint a fresh superuser and step around them.
 So the tools are simply absent, and `runCommand` refuses the same commands
 (`createUser`, `grantRolesToUser`, `createRole`, `rolesInfo`, and the rest of
 the family, in any casing) rather than leaving a one-line bypass of their
-removal. The `MONGODB_URI` credential should not hold `userAdmin` at all.
+removal. Neither MongoDB credential (`MONGODB_RO_URI`, `MONGODB_RW_URI`)
+should hold `userAdmin` at all.
 
 Manage users and roles where they can be audited and separately authorised: the
 Atlas UI (Database Access), the Atlas Admin API, or `mongosh` with a
@@ -156,7 +216,8 @@ below into your client of choice. Replace the URL with your own
 
 This is an internal service. On first connect your client opens a WorkOS
 **sign-in** page in the browser; authenticate with an account that belongs to
-the allowed organization and holds the `mongodb:access` permission. The client
+the allowed organization and holds at least one store's `<store>:access`
+permission. The client
 caches the resulting OAuth session and refreshes it automatically — there is no
 token or header to manage by hand.
 
@@ -164,16 +225,16 @@ token or header to manage by hand.
 
 Claude Desktop: edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
-Claude Code CLI: run `claude mcp add mongodb https://mongodb.nyuchi.dev/mcp --transport http`
+Claude Code CLI: run `claude mcp add nyuchi-data https://data.nyuchi.dev/mcp --transport http`
 (or add the snippet below to `~/.claude.json`). It will prompt you to sign in
 through WorkOS on first use.
 
 ```jsonc
 {
   "mcpServers": {
-    "mongodb": {
+    "nyuchi-data": {
       "type": "http",
-      "url": "https://mongodb.nyuchi.dev/mcp",
+      "url": "https://data.nyuchi.dev/mcp",
     },
   },
 }
@@ -186,8 +247,8 @@ Add to `~/.cursor/mcp.json` (user-wide) or `.cursor/mcp.json` (project-local):
 ```jsonc
 {
   "mcpServers": {
-    "mongodb": {
-      "url": "https://mongodb.nyuchi.dev/mcp",
+    "nyuchi-data": {
+      "url": "https://data.nyuchi.dev/mcp",
     },
   },
 }
@@ -201,9 +262,9 @@ the equivalent `mcp` block in user settings:
 ```jsonc
 {
   "servers": {
-    "mongodb": {
+    "nyuchi-data": {
       "type": "http",
-      "url": "https://mongodb.nyuchi.dev/mcp",
+      "url": "https://data.nyuchi.dev/mcp",
     },
   },
 }
@@ -217,9 +278,9 @@ which runs the OAuth sign-in for them:
 ```jsonc
 {
   "mcpServers": {
-    "mongodb": {
+    "nyuchi-data": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"],
+      "args": ["-y", "mcp-remote", "https://data.nyuchi.dev/mcp"],
     },
   },
 }
@@ -236,9 +297,9 @@ Drop that into:
 `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.mongodb]
+[mcp_servers.nyuchi-data]
 command = "npx"
-args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
+args = ["-y", "mcp-remote", "https://data.nyuchi.dev/mcp"]
 ```
 
 ### Gemini CLI / Gemini Code Assist
@@ -248,8 +309,8 @@ args = ["-y", "mcp-remote", "https://mongodb.nyuchi.dev/mcp"]
 ```jsonc
 {
   "mcpServers": {
-    "mongodb": {
-      "httpUrl": "https://mongodb.nyuchi.dev/mcp",
+    "nyuchi-data": {
+      "httpUrl": "https://data.nyuchi.dev/mcp",
     },
   },
 }
@@ -263,10 +324,10 @@ sign-in and token refresh on the client's behalf.
 
 ## Set up your own MCP server
 
-You only need this section if you want to run your own instance — point it at
-your own MongoDB cluster, customise org-/permission-gating, or host the
-worker yourself. Most callers should be able to use the Nyuchi-hosted
-deployment in the previous section.
+You only need this section to run another instance. The Nyuchi deployment's
+own switch-over (WorkOS permissions, credentials, 1Password fields, the Fly
+relay, DNS) is in [`docs/design/data-mcp.md`](docs/design/data-mcp.md),
+section 8.
 
 ### 1. Install dependencies
 
@@ -281,39 +342,48 @@ In the WorkOS dashboard:
 1. Create a **Connect** (OAuth) application. Note its **client id**.
 2. Add your worker's callback as a redirect URI:
    `https://<your-worker>/callback`.
-3. Under **Authorization**, define a permission (e.g. `mongodb:access`) and
-   attach it to the role(s) you want to grant. The Connect app surfaces
-   permissions as OAuth scopes, so the worker can request the permission and
-   WorkOS grants it only to users whose org role holds it.
+3. Under **Authorization**, define the ten permissions in
+   [Permissions](#permissions) and attach them to the role(s) you want to
+   grant. The Connect app surfaces permissions as OAuth scopes, so the worker
+   requests all ten and WorkOS grants only those the user's org role holds.
 4. Note your environment's **AuthKit/OAuth domain** (e.g.
    `https://<env>.authkit.app`) — it is both issuer and OAuth base.
 
 ### 3. Configure the gate
 
-Set these non-secret `vars` in `wrangler.jsonc`:
+Non-secret `vars` in `wrangler.jsonc`:
 
-- `WORKOS_AUTHKIT_DOMAIN` — `https://<env>.authkit.app` (issuer + OAuth base)
 - `WORKOS_CLIENT_ID` — the Connect application client id
 - `WORKOS_ORGANIZATION_ID` — the org the sign-in flow is pinned to
 - `WORKOS_ALLOWED_ORG_IDS` — comma-separated `org_id` allowlist
-- `WORKOS_REQUIRED_PERMISSION` — permission requested as a scope and enforced
-  (e.g. `mongodb:access`)
+- `WORKOS_REQUIRED_PERMISSION` — comma-separated, any-of: the permissions that
+  get a session through the front door (the five `<store>:access`)
+- `RELAY_URL` — the relay's base URL
 
-Then set the secrets:
+Secrets (`wrangler secret put <NAME>`; Nyuchi pushes them from 1Password):
 
-```sh
-npx wrangler secret put MONGODB_URI
-npx wrangler secret put COOKIE_ENCRYPTION_KEY   # any long random string
-```
+| Secret                  | Purpose                                                               |
+| ----------------------- | --------------------------------------------------------------------- |
+| `WORKOS_AUTHKIT_DOMAIN` | AuthKit/OAuth domain (issuer + OAuth base)                            |
+| `COOKIE_ENCRYPTION_KEY` | encrypts the client-approval cookie (`openssl rand -hex 32`)          |
+| `MONGODB_RO_URI`        | read-only MongoDB user; every MongoDB read tool                       |
+| `MONGODB_RW_URI`        | optional read-write user; MongoDB write tools                         |
+| `SUPABASE_<KEY>_RO_URL` | read-only role per project (`RELATIONAL`, `PAY`, `SHAMWARI`, `MZIZI`) |
+| `SUPABASE_<KEY>_RW_URL` | optional read-write role per project                                  |
+| `RELAY_SIGNING_SECRET`  | HMAC key shared with the relay (`openssl rand -hex 32`)               |
 
-`COOKIE_ENCRYPTION_KEY` encrypts the client-approval cookie; the worker holds
-no WorkOS secret (the Connect flow is a public PKCE client).
+The worker holds no WorkOS secret (the Connect flow is a public PKCE client).
+A store whose secret is missing keeps its tools listed; they answer with the
+name of the missing secret.
 
 ### 4. MongoDB user role requirements
 
-The user encoded in `MONGODB_URI` must have the privileges for whichever tools
-you intend to call — the MCP can only do what that user is authorised to do.
-Grant the smallest role that covers your usage:
+The read-only user (`MONGODB_RO_URI`) needs `readAnyDatabase` and
+`clusterMonitor` on `admin`, which covers every read tool. The read-write user
+(`MONGODB_RW_URI`), if you create one, needs the roles for the write tools you
+intend to use. (Permission hints in tool errors still say `MONGODB_URI`; read
+that as whichever of the two the tool ran with.) The table maps tools to
+roles:
 
 | Tools you want to use                                                                                                                                                                                                 | Required role (on the target db)                                      |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -325,7 +395,7 @@ Grant the smallest role that covers your usage:
 | Atlas Search tools (`listSearchIndexes`, `createSearchIndex`, …)                                                                                                                                                      | Atlas-cluster role with Search privileges (e.g. `atlasAdmin`)         |
 | Anything on every database in the cluster                                                                                                                                                                             | `readWriteAnyDatabase` / `dbAdminAnyDatabase` / `root`                |
 
-**Never grant `userAdmin` (or `userAdminAnyDatabase`, or `root`) to this
+**Never grant `userAdmin` (or `userAdminAnyDatabase`, or `root`) to either
 credential.** No tool needs it, `runCommand` refuses the commands that would
 use it, and it cannot be scoped — see
 [Why there is no user or role management](#why-there-is-no-user-or-role-management).
@@ -361,9 +431,23 @@ npm run deploy
 ```sh
 npm test          # vitest, runs inside workerd via @cloudflare/vitest-pool-workers
 npm run type-check
+cd relay && npm test && npm run type-check   # the relay: node:test on Node 24
 ```
 
 Coverage:
+
+- `test/registry.test.ts` — the scope gating and the tool registry: exact
+  per-store catalogues, the store prefix, access derived from `readOnlyHint`
+  (a missing hint counts as a write), every destructive tool behind write, a
+  session with no scopes seeing nothing, one store's access showing only that
+  store's read tools, the call-time re-check, and audit lines that carry no
+  arguments or results.
+- `test/relay.test.ts` — request signing (tampered body, path, method, secret,
+  stale timestamp, missing headers) and the Worker's relay client.
+- `relay/test/*.test.ts` — the relay: its op table pinned against the Worker's
+  tool lists, scope and write-switch enforcement, CQL guards, nonce replay,
+  the signed HTTP handler, and the stdio MCP client against a stand-in Doris
+  MCP.
 
 - `test/mongo.test.ts` — Extended JSON parse/stringify helpers, including
   truncation of oversized payloads at the 256 KiB cap.
@@ -374,8 +458,9 @@ Coverage:
   behind `confirm: true`.
 - `test/handler.test.ts` — drives the real stateless `/mcp` handler inside
   `workerd`: the `initialize` handshake, `tools/list` returning the expected
-  catalogue with no identity tools, `runCommand` refusing `createUser`, and
-  repeated requests each getting a fresh server instance.
+  catalogue with no identity tools, `runCommand` refusing `createUser`,
+  repeated requests each getting a fresh server instance, and the production
+  catalogue's `tools/list` following the session's scopes.
 - `test/oauth-utils.test.ts` — client-approval cookie signing and the approval
   dialog helpers.
 - `test/access-gate.test.ts` — the org + permission gate: who is admitted, who
@@ -385,11 +470,11 @@ Coverage:
 
 Every pull request and every push to `main` runs three workflows:
 
-| Workflow       | Checks                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `ci.yml`       | `npm run type-check`, `npm test` (vitest in `workerd`), `wrangler deploy --dry-run` to catch bundle/config breakage |
-| `lint.yml`     | org-wide reusable lint: `prettier --check`, `markdownlint`, `yamllint`, `actionlint`, JSON validity                 |
-| `security.yml` | `npm audit --omit=dev --audit-level=high`, `dependency-review-action` (fails on high), `gitleaks` secret scan       |
+| Workflow       | Checks                                                                                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`       | `npm run type-check`, `npm test` (vitest in `workerd`), `wrangler deploy --dry-run` to catch bundle/config breakage; the relay's type-check and tests |
+| `lint.yml`     | org-wide reusable lint: `prettier --check`, `markdownlint`, `yamllint`, `actionlint`, JSON validity                                                   |
+| `security.yml` | `npm audit --omit=dev --audit-level=high`, `dependency-review-action` (fails on high), `gitleaks` secret scan                                         |
 
 `security.yml` also runs on a weekly cron so advisories published after a PR
 merges still surface. CodeQL runs through GitHub's Default Setup rather than a
@@ -407,9 +492,11 @@ The official `mongodb` Node driver runs on Workers thanks to the
 `nodejs_compat` compatibility flag (which provides `node:net`, `node:tls`,
 `node:dns`, and `node:timers`). The driver opens TCP sockets to your cluster
 from inside the request handler — never at module scope — which is the only
-place Workers permit TCP connections. `getClient()` in `src/index.ts` enforces
-that: the `MongoClient` promise is created lazily on the first request an
-isolate serves, and cleared again if the connect fails.
+place Workers permit TCP connections. `mongoClient()` in `src/index.ts`
+enforces that: each credential's `MongoClient` promise is created lazily on the
+first request an isolate serves, and dropped again if the connect fails. The
+Supabase driver (`postgres`) follows the same rule and is imported dynamically,
+so the test loader never pulls it in.
 
 Two dependency pins exist for the same runtime reason and are load-bearing:
 `bson` is held at `7.2.0` because 7.3.0 generates random bytes in `ObjectId`'s
@@ -422,12 +509,17 @@ and native optional dependencies (`snappy`, `kerberos`, `mongodb-client-encrypti
 - The MCP endpoint is **not** public. `/mcp` is reachable only through a
   WorkOS-authorized OAuth session; unauthenticated requests never reach the
   tools, and the gate fails closed when unconfigured.
-- Access is double-gated: the session's `org_id` must be in the allowlist **and**
-  the `mongodb:access` permission must be present in the granted OAuth scope
-  (WorkOS grants it only to users whose org role holds it). Both checks **fail
-  closed** — if `WORKOS_ALLOWED_ORG_IDS` or `WORKOS_REQUIRED_PERMISSION` is
-  unset, the worker refuses the request rather than treating absent config as
-  "no restriction".
+- Access is gated twice: the session's `org_id` must be in the allowlist **and**
+  it must hold at least one `<store>:access` (WorkOS grants a permission only
+  to users whose org role holds it). Both checks **fail closed** — if
+  `WORKOS_ALLOWED_ORG_IDS` or `WORKOS_REQUIRED_PERMISSION` is unset, the worker
+  refuses the request rather than treating absent config as "no restriction".
+  Past the door, each store's tools need that store's permission, and anything
+  that changes data needs `<store>:write` as well.
+- The relay accepts only HMAC-signed requests (timestamp window, single-use
+  nonce, body hash), repeats the scope check, and refuses writes to any store
+  not named in `RELAY_ALLOW_WRITES`. Doris MCP runs as its stdio child and
+  opens no port.
 - Six irreversible tools refuse to run without `confirm: true` —
   `dropCollection`, `dropDatabase`, `dropIndexes`, `convertToCapped`,
   `enableSharding`, `shardCollection` — and `deleteMany` additionally refuses an
@@ -436,8 +528,9 @@ and native optional dependencies (`snappy`, `kerberos`, `mongodb-client-encrypti
 - Tool responses are capped at 256 KiB by `stringifyEJson`, so a `find` over a
   large collection truncates rather than exhausting the isolate.
 - The worker stores no WorkOS secret (public PKCE client);
-  `COOKIE_ENCRYPTION_KEY` encrypts the client-approval cookie and `MONGODB_URI`
-  is a Wrangler secret.
+  `COOKIE_ENCRYPTION_KEY` encrypts the client-approval cookie; store
+  credentials are Wrangler secrets (Worker) and Fly secrets (relay), pushed
+  from 1Password.
 - CI runs `npm audit`, `actions/dependency-review-action`, and `gitleaks` on
   every PR — see `.github/workflows/security.yml`. CodeQL static analysis is
   handled by GitHub's Default Setup (Settings → Code security & analysis).

@@ -48,6 +48,36 @@ updates:
           - minor
           - patch
 
+  - package-ecosystem: npm
+    directory: /relay
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Africa/Harare
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "automated"]
+    reviewers: ["nyuchi/platform"]
+    ignore:
+      # The client must match JanusGraph's TinkerPop line (3.7 in
+      # janusgraph/janusgraph:1.1.0); move both together.
+      - dependency-name: "gremlin"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      relay:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: docker
+    directory: /relay
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Africa/Harare
+    labels: ["dependencies", "automated"]
+    reviewers: ["nyuchi/platform"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
