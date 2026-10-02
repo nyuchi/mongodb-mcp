@@ -290,9 +290,15 @@ In the WorkOS dashboard:
 
 ### 3. Configure the gate
 
+Set the AuthKit domain per environment as a Worker secret — it is required,
+never committed, and has no default in code (without it `/authorize` and
+`/callback` answer `503 WORKOS_AUTHKIT_DOMAIN is not configured`):
+
+- `WORKOS_AUTHKIT_DOMAIN` — the AuthKit domain (issuer + OAuth base);
+  `wrangler secret put WORKOS_AUTHKIT_DOMAIN`
+
 Set these non-secret `vars` in `wrangler.jsonc`:
 
-- `WORKOS_AUTHKIT_DOMAIN` — `https://<env>.authkit.app` (issuer + OAuth base)
 - `WORKOS_CLIENT_ID` — the Connect application client id
 - `WORKOS_ORGANIZATION_ID` — the org the sign-in flow is pinned to
 - `WORKOS_ALLOWED_ORG_IDS` — comma-separated `org_id` allowlist
