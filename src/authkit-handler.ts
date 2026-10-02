@@ -38,16 +38,40 @@ async function buildPkce(): Promise<{ codeVerifier: string; codeChallenge: strin
 export const AUTHKIT_DOMAIN_MISSING = "WORKOS_AUTHKIT_DOMAIN is not configured";
 
 /**
+ * Parse — never concatenate — a configured AuthKit domain into an https origin.
+ *
+ * Accepts a bare host or an https origin, in any case. Any path, query or
+ * fragment is dropped. A blank value, `http:`, any other scheme, embedded
+ * credentials and anything `URL` cannot parse all throw an error whose message
+ * starts with `AUTHKIT_DOMAIN_MISSING`. The result is `URL.origin`.
+ */
+export function normaliseAuthkitDomain(value: string | undefined): string {
+  const raw = value?.trim();
+  if (!raw) throw new Error(AUTHKIT_DOMAIN_MISSING);
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    throw new Error(`${AUTHKIT_DOMAIN_MISSING} (not a valid host or URL)`);
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(`${AUTHKIT_DOMAIN_MISSING} (must be an https origin)`);
+  }
+  return url.origin;
+}
+
+/**
  * The WorkOS AuthKit origin (issuer + OAuth base), from configuration only —
- * there is no default and no fallback host. Accepts a bare host or an https
- * origin, trims whitespace and any trailing slash. Returns null when unset;
- * the routes below answer 503 in that case.
+ * there is no default and no fallback host. Parsed by `normaliseAuthkitDomain`.
+ * Returns null when unset or unusable (http, another scheme, credentials,
+ * unparseable); the routes below answer 503 in that case.
  */
 export function authkitDomain(env: Pick<Env, "WORKOS_AUTHKIT_DOMAIN">): string | null {
-  const raw = (env.WORKOS_AUTHKIT_DOMAIN ?? "").trim();
-  if (!raw) return null;
-  const origin = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
-  return origin.replace(/\/+$/, "");
+  try {
+    return normaliseAuthkitDomain(env.WORKOS_AUTHKIT_DOMAIN);
+  } catch {
+    return null;
+  }
 }
 
 function requireAuthkitDomain(env: Env): string {
@@ -80,7 +104,9 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   if (env.WORKOS_ORGANIZATION_ID) {
     params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
   }
-  return `${requireAuthkitDomain(env)}/oauth2/authorize?${params}`;
+  const url = new URL("/oauth2/authorize", requireAuthkitDomain(env));
+  url.search = params.toString();
+  return url.href;
 }
 
 // ---
@@ -285,7 +311,8 @@ app.get("/callback", async (c) => {
   }
 
   const redirectUri = new URL("/callback", c.req.url).href;
-  const tokenRes = await fetch(`${requireAuthkitDomain(c.env)}/oauth2/token`, {
+  const tokenUrl = new URL("/oauth2/token", requireAuthkitDomain(c.env));
+  const tokenRes = await fetch(tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
