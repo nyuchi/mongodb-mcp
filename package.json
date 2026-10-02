@@ -1,9 +1,10 @@
 {
-  "name": "mongodb-mcp",
-  "version": "0.1.21",
+  "name": "nyuchi-data-mcp",
+  "version": "0.2.0",
   "private": true,
+  "type": "module",
   "license": "MIT",
-  "description": "Authenticated remote MCP server for managing MongoDB, running on Cloudflare Workers with WorkOS OAuth.",
+  "description": "Nyuchi's operator MCP for all data infrastructure (MongoDB, Supabase, Apache Doris, Cassandra, JanusGraph), on Cloudflare Workers with WorkOS OAuth and a private-network relay on Fly.",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -22,6 +23,7 @@
     "hono": "^4.13.3",
     "jose": "^6.2.3",
     "mongodb": "7.5.0",
+    "postgres": "^3.4.9",
     "zod": "^4.4.3"
   },
   "devDependencies": {

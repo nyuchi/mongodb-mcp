@@ -1,0 +1,61 @@
+# nyuchi-data-relay: the private-network half of the Nyuchi data MCP.
+#
+# The Cloudflare Worker (data.nyuchi.dev) cannot reach Fly's 6PN, so it calls
+# this app over one public HTTPS endpoint with HMAC-signed requests; the relay
+# then talks to Doris, Cassandra and JanusGraph over 6PN. Design and threat
+# model: docs/design/data-mcp.md.
+#
+# Deploy from the REPOSITORY ROOT (the image needs src/relay-signing.ts):
+#
+#   fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile
+#
+# Secrets (staged by ~/GitHub/owner-actions.sh from 1Password, never here):
+#   RELAY_SIGNING_SECRET        nyuchi/data-mcp     same value as the Worker's
+#   DORIS_MCP_RO_PASSWORD       nyuchi/data-infra   Doris user nyuchi_mcp_ro
+#   CASSANDRA_MCP_RO_PASSWORD   nyuchi/data-infra   Cassandra role nyuchi_mcp_ro
+#   GREMLIN_PASSWORD            nyuchi/data-infra   JanusGraph Gremlin user
+#   CASSANDRA_MCP_RW_PASSWORD   nyuchi/data-infra   optional; only with writes on
+
+app = "nyuchi-data-relay"
+primary_region = "jnb"
+
+[env]
+  PORT = "8080"
+  # Writes are refused for every store unless named here (e.g. "cassandra").
+  RELAY_ALLOW_WRITES = ""
+  DORIS_HOST = "mukoko-doris.internal"
+  DORIS_PORT = "9030"
+  DORIS_FE_HTTP_PORT = "8030"
+  DORIS_USER = "nyuchi_mcp_ro"
+  CASSANDRA_CONTACT_POINTS = "nyuchi-cassandra.internal"
+  CASSANDRA_LOCAL_DC = "jnb"
+  CASSANDRA_RO_USER = "nyuchi_mcp_ro"
+  GREMLIN_URL = "ws://nyuchi-janusgraph.internal:8182/gremlin"
+  GREMLIN_USER = "nyuchi_api"
+
+# The one public surface: HTTPS on 443, terminated by Fly's proxy. Every path
+# but /healthz answers 401 without a valid signature.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 40
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+# One machine: the replay (nonce) cache is in memory. See the design doc
+# before scaling out.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024mb"

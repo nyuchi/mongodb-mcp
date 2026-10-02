@@ -24,7 +24,13 @@
       "id": "5444b8773bc14eb78738c74f1d3c28ea",
     },
   ],
+  // data.nyuchi.dev is the endpoint; mongodb.nyuchi.dev stays as an alias
+  // while existing clients move over (docs/design/data-mcp.md, "Transition").
   "routes": [
+    {
+      "pattern": "data.nyuchi.dev",
+      "custom_domain": true,
+    },
     {
       "pattern": "mongodb.nyuchi.dev",
       "custom_domain": true,
@@ -51,12 +57,17 @@
     "mongodb-client-encryption": "./src/native-stub.js",
     "snappy": "./src/native-stub.js",
   },
+  // WORKOS_AUTHKIT_DOMAIN is deliberately not a var: it is pushed as a secret
+  // from 1Password (nyuchi/workos) by owner-actions.sh, and a var of the same
+  // name would collide with it. The value that used to be here pointed at a
+  // retired host.
   "vars": {
-    "WORKOS_AUTHKIT_DOMAIN": "https://identity.nyuchi.com",
     "WORKOS_CLIENT_ID": "client_01KVTX0V2K1VM3PSC0DJ9VZWTV",
     "WORKOS_ORGANIZATION_ID": "org_01KRDAB894DJF5V38PT5617TV1",
     "WORKOS_ALLOWED_ORG_IDS": "org_01KRDAB894DJF5V38PT5617TV1",
-    "WORKOS_REQUIRED_PERMISSION": "mongodb:access",
+    // Any one of these admits a session; each store's tools then need their own.
+    "WORKOS_REQUIRED_PERMISSION": "mongodb:access,supabase:access,doris:access,cassandra:access,graph:access",
+    "RELAY_URL": "https://nyuchi-data-relay.fly.dev",
   },
   "dev": {
     "port": 8788,
