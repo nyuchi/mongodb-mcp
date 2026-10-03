@@ -1,5 +1,6 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
+import { parseAuthRequestOrReject } from "./authorize-request";
 import * as jose from "jose";
 import { iconSvg } from "./icon";
 import { landingHtml } from "./landing";
@@ -196,7 +197,9 @@ for (const path of ["/authorize", "/callback"]) {
 }
 
 app.get("/authorize", async (c) => {
-  const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+  const parsed = await parseAuthRequestOrReject(c.req.raw, c.env.OAUTH_PROVIDER);
+  if (parsed instanceof Response) return parsed;
+  const oauthReqInfo = parsed;
   const { clientId } = oauthReqInfo;
   if (!clientId) {
     return c.text("Invalid request", 400);

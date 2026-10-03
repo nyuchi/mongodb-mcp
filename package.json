@@ -19,14 +19,14 @@
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.10.3",
-    "@modelcontextprotocol/client": "^2.0.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/client": "^2.2.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/server": "^2.2.0",
     "agents": "^0.21.0",
-    "hono": "^4.13.3",
-    "jose": "^6.2.3",
-    "mongodb": "7.5.0",
-    "zod": "^4.4.3"
+    "hono": "^4.13.11",
+    "jose": "^6.2.12",
+    "mongodb": "7.7.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
@@ -40,7 +40,7 @@
   "overrides": {
     "bson": "7.2.0",
     "fast-uri": "^3.1.7",
-    "ip-address": "^10.5.0"
+    "ip-address": "^10.7.3"
   },
   "packageManager": "npm@11.12.1"
 }
