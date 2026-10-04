@@ -450,16 +450,21 @@ and native optional dependencies (`snappy`, `kerberos`, `mongodb-client-encrypti
 
 ## Releases
 
-Tags are the source of truth. Every push to `main` runs
-`.github/workflows/auto-tag.yml`, which inspects conventional-commit prefixes
-since the last tag and pushes a new annotated tag:
+Tags are the source of truth. Versions follow the org policy
+([nyuchi/.github#80](https://github.com/nyuchi/.github/issues/80)); the branch
+decides the bump, not the commit message:
 
-| Commit prefix          | Bump  |
-| ---------------------- | ----- |
-| `feat:`                | minor |
-| `fix:` / `perf:`       | patch |
-| `chore:` / `docs:` / … | patch |
-| `BREAKING CHANGE:`     | major |
+| Event                                       | Bump  |
+| ------------------------------------------- | ----- |
+| A merge into `staging` (the live beta)      | patch |
+| A push to `main` (`auto-tag.yml`)           | minor |
+| A person runs _auto-tag_ with `bump: major` | major |
+
+Each segment holds 0–999: patch 999 rolls into the next minor, and minor 999
+stops and asks for that manual major. The shared `next-version` action
+computes the next version from the highest `v*` tag (via the org's
+`reusable-auto-tag.yml`). Versions released before 2026-10-04 are not
+renumbered.
 
 The tag push fires `release.yml`, which delegates to the org-wide
 `nyuchi/.github/.github/workflows/reusable-release.yml` — it validates the
