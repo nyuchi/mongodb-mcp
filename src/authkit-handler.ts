@@ -35,6 +35,52 @@ async function buildPkce(): Promise<{ codeVerifier: string; codeChallenge: strin
   return { codeVerifier, codeChallenge };
 }
 
+/** Message used whenever the sign-in flow needs the AuthKit domain and it is unset. */
+export const AUTHKIT_DOMAIN_MISSING = "WORKOS_AUTHKIT_DOMAIN is not configured";
+
+/**
+ * Parse — never concatenate — a configured AuthKit domain into an https origin.
+ *
+ * Accepts a bare host or an https origin, in any case. Any path, query or
+ * fragment is dropped. A blank value, `http:`, any other scheme, embedded
+ * credentials and anything `URL` cannot parse all throw an error whose message
+ * starts with `AUTHKIT_DOMAIN_MISSING`. The result is `URL.origin`.
+ */
+export function normaliseAuthkitDomain(value: string | undefined): string {
+  const raw = value?.trim();
+  if (!raw) throw new Error(AUTHKIT_DOMAIN_MISSING);
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    throw new Error(`${AUTHKIT_DOMAIN_MISSING} (not a valid host or URL)`);
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(`${AUTHKIT_DOMAIN_MISSING} (must be an https origin)`);
+  }
+  return url.origin;
+}
+
+/**
+ * The WorkOS AuthKit origin (issuer + OAuth base), from configuration only —
+ * there is no default and no fallback host. Parsed by `normaliseAuthkitDomain`.
+ * Returns null when unset or unusable (http, another scheme, credentials,
+ * unparseable); the routes below answer 503 in that case.
+ */
+export function authkitDomain(env: Pick<Env, "WORKOS_AUTHKIT_DOMAIN">): string | null {
+  try {
+    return normaliseAuthkitDomain(env.WORKOS_AUTHKIT_DOMAIN);
+  } catch {
+    return null;
+  }
+}
+
+function requireAuthkitDomain(env: Env): string {
+  const domain = authkitDomain(env);
+  if (!domain) throw new Error(AUTHKIT_DOMAIN_MISSING);
+  return domain;
+}
+
 async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string): Promise<string> {
   const { codeVerifier, codeChallenge } = await buildPkce();
   await env.OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
@@ -59,7 +105,9 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   if (env.WORKOS_ORGANIZATION_ID) {
     params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
   }
-  return `${env.WORKOS_AUTHKIT_DOMAIN}/oauth2/authorize?${params}`;
+  const url = new URL("/oauth2/authorize", requireAuthkitDomain(env));
+  url.search = params.toString();
+  return url.href;
 }
 
 // ---
@@ -136,6 +184,17 @@ function serveIcon() {
 app.get("/favicon.ico", () => serveIcon());
 app.get("/icon.svg", () => serveIcon());
 app.get("/icon.png", () => serveIcon());
+
+// The sign-in flow needs the AuthKit domain, which comes only from
+// configuration. Without it, fail closed and say which setting is missing.
+for (const path of ["/authorize", "/callback"]) {
+  app.use(path, async (c, next) => {
+    if (!authkitDomain(c.env)) {
+      return c.text(`Service Unavailable: ${AUTHKIT_DOMAIN_MISSING}`, 503);
+    }
+    await next();
+  });
+}
 
 app.get("/authorize", async (c) => {
   const parsed = await parseAuthRequestOrReject(c.req.raw, c.env.OAUTH_PROVIDER);
@@ -255,7 +314,8 @@ app.get("/callback", async (c) => {
   }
 
   const redirectUri = new URL("/callback", c.req.url).href;
-  const tokenRes = await fetch(`${c.env.WORKOS_AUTHKIT_DOMAIN}/oauth2/token`, {
+  const tokenUrl = new URL("/oauth2/token", requireAuthkitDomain(c.env));
+  const tokenRes = await fetch(tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

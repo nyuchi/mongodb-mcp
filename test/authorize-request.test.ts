@@ -96,6 +96,7 @@ describe("GET /authorize", () => {
     const response = await AuthkitHandler.fetch(
       new Request(`${AUTHORIZE}&client_id=bogus`),
       {
+        WORKOS_AUTHKIT_DOMAIN: "https://identity.example.test",
         OAUTH_PROVIDER: provider({
           parseAuthRequest: async () => {
             throw new Error("Invalid client");
