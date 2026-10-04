@@ -1,20 +1,27 @@
 name: auto-tag
 
-# Bumps a semver tag on every push to main. Conventional-commit prefixes drive
-# the bump:
-#   feat: ............ minor
-#   fix: / perf: ..... patch
-#   chore: / docs: ... patch (default_bump)
-#   BREAKING CHANGE .. major
+# Versioning policy (nyuchi/.github#80): a release to main is the next MINOR
+# above the highest tag; merges into staging are tagged as patches by
+# staging-version.yml; a MAJOR is only ever made by hand, from the Actions
+# tab with bump: major. Each segment holds 0..999.
 #
-# A PAT is required (`RELEASE_BUMP_TOKEN`, fine-grained, scope = contents:write
-# + actions:read on this repo). GITHUB_TOKEN-pushed tags do not trigger
-# downstream workflows, so without the PAT the release.yml caller would never
-# fire and no SBOM/release would be cut.
+# The version is COMPUTED from the tags (package.json is not the source of
+# the release version here). The tag is pushed with RELEASE_BUMP_TOKEN so
+# that release.yml (on `push: tags`) starts; a GITHUB_TOKEN tag would not
+# start it. The logic is nyuchi/.github's reusable-auto-tag.yml.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: >-
+          Versioning policy override. main releases the next minor; a major
+          is only ever made by hand, here.
+        type: choice
+        options: [minor, patch, major]
+        default: minor
 
 permissions:
   contents: read
@@ -25,21 +32,9 @@ concurrency:
 
 jobs:
   tag:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      # History for the commit analysis only; the action creates the tag
-      # through the API, so the checkout keeps no credential.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Bump semver tag
-        uses: mathieudutour/github-tag-action@af99e60ce8132224b8e6ebab5023449fe256ed46 # v7
-        with:
-          github_token: ${{ secrets.RELEASE_BUMP_TOKEN }}
-          default_bump: patch
-          tag_prefix: v
-          release_branches: main
-          create_annotated_tag: true
+    uses: nyuchi/.github/.github/workflows/reusable-auto-tag.yml@924e5b4d0983d31379aedbec02b990793f29c792 # main, 2026-10-04
+    with:
+      channel: main
+      bump: ${{ inputs.bump || '' }}
+    secrets:
+      token: ${{ secrets.RELEASE_BUMP_TOKEN }}
