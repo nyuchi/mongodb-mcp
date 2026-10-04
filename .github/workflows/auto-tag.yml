@@ -1,20 +1,32 @@
 name: auto-tag
 
-# Bumps a semver tag on every push to main. Conventional-commit prefixes drive
-# the bump:
-#   feat: ............ minor
-#   fix: / perf: ..... patch
-#   chore: / docs: ... patch (default_bump)
-#   BREAKING CHANGE .. major
+# Tags the next version on every push to main, under the org versioning
+# policy (nyuchi/.github#80):
+#   a merge into staging ........ PATCH (staging-version.yml)
+#   a push to main (a release) .. MINOR (this workflow)
+#   MAJOR ....................... only ever by hand: run this workflow with
+#                                 bump: major
+# Each segment holds 0..999; minor 999 stops and asks for that manual major.
+# The version is computed from the highest v* tag by the shared next-version
+# action, inside reusable-auto-tag.yml (no version file in this repo).
+# Before 2026-10-04 conventional-commit prefixes chose the bump; versions
+# released under that rule are not renumbered.
 #
-# A PAT is required (`RELEASE_BUMP_TOKEN`, fine-grained, scope = contents:write
-# + actions:read on this repo). GITHUB_TOKEN-pushed tags do not trigger
-# downstream workflows, so without the PAT the release.yml caller would never
-# fire and no SBOM/release would be cut.
+# The tag is pushed with the PAT (`RELEASE_BUMP_TOKEN`): GITHUB_TOKEN-pushed
+# tags do not trigger downstream workflows, so without it release.yml would
+# never fire and no SBOM/release would be cut. The reusable workflow hands the
+# PAT only to its push step.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Bump for this release. major is only ever made by hand, here.
+        type: choice
+        options: [minor, patch, major]
+        default: minor
 
 permissions:
   contents: read
@@ -25,21 +37,9 @@ concurrency:
 
 jobs:
   tag:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      # History for the commit analysis only; the action creates the tag
-      # through the API, so the checkout keeps no credential.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Bump semver tag
-        uses: mathieudutour/github-tag-action@af99e60ce8132224b8e6ebab5023449fe256ed46 # v7
-        with:
-          github_token: ${{ secrets.RELEASE_BUMP_TOKEN }}
-          default_bump: patch
-          tag_prefix: v
-          release_branches: main
-          create_annotated_tag: true
+    uses: nyuchi/.github/.github/workflows/reusable-auto-tag.yml@924e5b4d0983d31379aedbec02b990793f29c792  # main, 2026-10-04
+    with:
+      channel: main
+      bump: ${{ inputs.bump || '' }}
+    secrets:
+      token: ${{ secrets.RELEASE_BUMP_TOKEN }}
