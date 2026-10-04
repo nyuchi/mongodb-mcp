@@ -18,11 +18,11 @@
     "ci:check": "vp lint"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@cloudflare/workers-oauth-provider": "^1.2.1",
     "@modelcontextprotocol/client": "^2.2.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "@modelcontextprotocol/server": "^2.2.0",
-    "agents": "^0.21.0",
+    "agents": "^0.24.0",
     "hono": "^4.13.11",
     "jose": "^6.2.12",
     "mongodb": "7.7.0",
@@ -30,12 +30,12 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
-    "@cloudflare/workers-types": "^5.20260818.1",
+    "@cloudflare/workers-types": "^5.20260930.2",
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3",
     "vite-plus": "^1.0.0",
     "vitest": "^4.1.9",
-    "wrangler": "^4.124.0"
+    "wrangler": "^4.145.0"
   },
   "overrides": {
     "bson": "7.2.0",
