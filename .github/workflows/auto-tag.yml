@@ -28,13 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      # History for the commit analysis only; the action creates the tag
+      # through the API, so the checkout keeps no credential.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_BUMP_TOKEN }}
+          persist-credentials: false
 
       - name: Bump semver tag
-        uses: mathieudutour/github-tag-action@v7
+        uses: mathieudutour/github-tag-action@af99e60ce8132224b8e6ebab5023449fe256ed46 # v7
         with:
           github_token: ${{ secrets.RELEASE_BUMP_TOKEN }}
           default_bump: patch
