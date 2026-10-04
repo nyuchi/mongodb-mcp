@@ -24,6 +24,10 @@
       "id": "5444b8773bc14eb78738c74f1d3c28ea",
     },
   ],
+  // Preview URLs carry the beta: each merge into `staging` is uploaded as a
+  // version (not deployed) under the alias `staging`, served at
+  // staging-mongodb-mcp.nyuchi.workers.dev. Production stays on the route below.
+  "preview_urls": true,
   "routes": [
     {
       "pattern": "mongodb.nyuchi.dev",
