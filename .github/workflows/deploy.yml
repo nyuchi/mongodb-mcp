@@ -1,0 +1,75 @@
+name: Deploy
+
+# Production deploys run from GitHub Actions, not the dashboard-connected
+# Workers Builds (owner rule, 2026-10-05: the first deploy of a Worker is
+# manual, every later one is CI). When "CI" passes on `main`, this deploys
+# that same commit as `mongodb-mcp` (mongodb.nyuchi.dev).
+#
+# Staging never deploys: it uploads a preview version (beta.yml).
+#
+# Skips cleanly when CLOUDFLARE_API_TOKEN is not available to the repo, or when
+# the Worker has never been deployed (that first deploy stays manual).
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push'))
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: No Cloudflare token
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        run: echo "::notice::CLOUDFLARE_API_TOKEN is not set; no deploy."
+
+      - uses: actions/checkout@v7
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        with:
+          # The commit CI passed on, not whatever main is by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        with:
+          node-version: "24"
+          cache: npm
+
+      - if: env.CLOUDFLARE_API_TOKEN != ''
+        run: npm ci
+
+      - name: Worker exists
+        id: exists
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: |
+          if npx wrangler deployments list >/dev/null 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::mongodb-mcp has never been deployed; the first deploy is manual."
+          fi
+
+      - name: wrangler deploy
+        if: steps.exists.outputs.ok == 'true'
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: npx wrangler deploy --message "main ${SHA::7}"
