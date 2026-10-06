@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-production
@@ -28,7 +29,7 @@ jobs:
   deploy:
     name: Deploy to production
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -59,25 +60,42 @@ jobs:
         run: npm ci
 
       # CI runs on main are not cancelled, so they can finish out of order.
-      # Only deploy the commit that is still the tip of main; a newer commit's
-      # own CI run deploys it, so an older one never rolls production back.
-      - name: Still the tip of main
+      # Deploy the commit that is still the tip of main. For an older commit,
+      # wait for the tip's CI: if it passes, the tip's own Deploy run ships it
+      # (so this older commit never rolls production back); if it fails, ship
+      # this commit, the newest one that passed.
+      - name: Newest passing commit
         id: tip
         if: env.CLOUDFLARE_API_TOKEN != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tip=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
+          tip=$(gh api "repos/${REPO}/commits/main" --jq .sha)
           if [ "$tip" = "$SHA" ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::${SHA::7} is no longer the tip of main (${tip::7}); its CI run deploys instead."
+            exit 0
           fi
+          for _ in $(seq 1 40); do
+            run=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${tip}&event=push&per_page=1" \
+              --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"')
+            case "$run" in
+              "completed success")
+                echo "::notice::${SHA::7} is older than main (${tip::7}), whose CI passed; that run deploys."
+                exit 0 ;;
+              completed\ *)
+                echo "::notice::CI on the tip ${tip::7} ended '${run#completed }'; deploying ${SHA::7}."
+                echo "ok=true" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+            esac
+            sleep 15
+          done
+          echo "::warning::CI on the tip ${tip::7} has not finished after 10 minutes; not deploying ${SHA::7}. Run Deploy by hand if the tip fails."
 
       # Only a Worker that does not exist yet skips (its first deploy is
       # manual). Any other wrangler failure (token scope, account, outage)
