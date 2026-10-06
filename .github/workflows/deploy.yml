@@ -3,7 +3,14 @@ name: Deploy
 # Production deploys run from GitHub Actions, not the dashboard-connected
 # Workers Builds (owner rule, 2026-10-05: the first deploy of a Worker is
 # manual, every later one is CI). When "CI" passes on `main`, this deploys
-# that same commit as `mongodb-mcp` (mongodb.nyuchi.dev).
+# the NEWEST commit on main whose CI passed as `mongodb-mcp`
+# (mongodb.nyuchi.dev).
+#
+# Why "newest passing" and not the triggering commit: CI runs on main are not
+# cancelled and can finish out of order, and a queued Deploy run can be
+# replaced by a later one. Resolving the target when the job starts means an
+# older commit never rolls production back, and whichever Deploy run executes
+# last still ships the newest commit that passed.
 #
 # Staging never deploys: it uploads a preview version (beta.yml).
 #
@@ -21,20 +28,21 @@ permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
-
 jobs:
   deploy:
     name: Deploy to production
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push'))
+    # Job-level, so runs whose job is skipped (a failed CI) never take the
+    # pending slot from a real deploy.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -43,11 +51,28 @@ jobs:
         if: env.CLOUDFLARE_API_TOKEN == ''
         run: echo "::notice::CLOUDFLARE_API_TOKEN is not set; no deploy."
 
+      # The newest push to main whose CI passed (runs are listed newest
+      # first by when they were created, i.e. in push order).
+      - name: Newest passing commit
+        id: target
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          sha=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // empty')
+          if [ -z "$sha" ]; then
+            echo "::error::No passing CI run on main; nothing to deploy."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Deploying ${sha::7}."
+
       - uses: actions/checkout@v7
         if: env.CLOUDFLARE_API_TOKEN != ''
         with:
-          # The commit CI passed on, not whatever main is by now.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ steps.target.outputs.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -59,50 +84,12 @@ jobs:
       - if: env.CLOUDFLARE_API_TOKEN != ''
         run: npm ci
 
-      # CI runs on main are not cancelled, so they can finish out of order.
-      # Deploy the commit that is still the tip of main. For an older commit,
-      # wait for the tip's CI: if it passes, the tip's own Deploy run ships it
-      # (so this older commit never rolls production back); if it fails, ship
-      # this commit, the newest one that passed.
-      - name: Newest passing commit
-        id: tip
-        if: env.CLOUDFLARE_API_TOKEN != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          tip=$(gh api "repos/${REPO}/commits/main" --jq .sha)
-          if [ "$tip" = "$SHA" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          for _ in $(seq 1 40); do
-            run=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${tip}&event=push&per_page=1" \
-              --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"')
-            case "$run" in
-              "completed success")
-                echo "::notice::${SHA::7} is older than main (${tip::7}), whose CI passed; that run deploys."
-                exit 0 ;;
-              completed\ *)
-                echo "::notice::CI on the tip ${tip::7} ended '${run#completed }'; deploying ${SHA::7}."
-                echo "ok=true" >> "$GITHUB_OUTPUT"
-                exit 0 ;;
-            esac
-            sleep 15
-          done
-          echo "::warning::CI on the tip ${tip::7} has not finished after 10 minutes; not deploying ${SHA::7}. Run Deploy by hand if the tip fails."
-
       # Only a Worker that does not exist yet skips (its first deploy is
       # manual). Any other wrangler failure (token scope, account, outage)
       # fails the job instead of silently leaving production behind.
       - name: Worker exists
         id: exists
-        if: steps.tip.outputs.ok == 'true'
+        if: env.CLOUDFLARE_API_TOKEN != ''
         run: |
           if out=$(npx wrangler deployments list 2>&1); then
             echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -117,5 +104,5 @@ jobs:
       - name: wrangler deploy
         if: steps.exists.outputs.ok == 'true'
         env:
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SHA: ${{ steps.target.outputs.sha }}
         run: npx wrangler deploy --message "main ${SHA::7}"
