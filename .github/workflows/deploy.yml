@@ -3,7 +3,14 @@ name: Deploy
 # Production deploys run from GitHub Actions, not the dashboard-connected
 # Workers Builds (owner rule, 2026-10-05: the first deploy of a Worker is
 # manual, every later one is CI). When "CI" passes on `main`, this deploys
-# that same commit as `mongodb-mcp` (mongodb.nyuchi.dev).
+# the NEWEST commit on main whose CI passed as `mongodb-mcp`
+# (mongodb.nyuchi.dev).
+#
+# Why "newest passing" and not the triggering commit: CI runs on main are not
+# cancelled and can finish out of order, and a queued Deploy run can be
+# replaced by a later one. Resolving the target when the job starts means an
+# older commit never rolls production back, and whichever Deploy run executes
+# last still ships the newest commit that passed.
 #
 # Staging never deploys: it uploads a preview version (beta.yml).
 #
@@ -19,10 +26,7 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+  actions: read
 
 jobs:
   deploy:
@@ -34,6 +38,11 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push'))
+    # Job-level, so runs whose job is skipped (a failed CI) never take the
+    # pending slot from a real deploy.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -42,11 +51,28 @@ jobs:
         if: env.CLOUDFLARE_API_TOKEN == ''
         run: echo "::notice::CLOUDFLARE_API_TOKEN is not set; no deploy."
 
+      # The newest push to main whose CI passed (runs are listed newest
+      # first by when they were created, i.e. in push order).
+      - name: Newest passing commit
+        id: target
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          sha=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // empty')
+          if [ -z "$sha" ]; then
+            echo "::error::No passing CI run on main; nothing to deploy."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Deploying ${sha::7}."
+
       - uses: actions/checkout@v7
         if: env.CLOUDFLARE_API_TOKEN != ''
         with:
-          # The commit CI passed on, not whatever main is by now.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ steps.target.outputs.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -58,18 +84,25 @@ jobs:
       - if: env.CLOUDFLARE_API_TOKEN != ''
         run: npm ci
 
+      # Only a Worker that does not exist yet skips (its first deploy is
+      # manual). Any other wrangler failure (token scope, account, outage)
+      # fails the job instead of silently leaving production behind.
       - name: Worker exists
         id: exists
         if: env.CLOUDFLARE_API_TOKEN != ''
         run: |
-          if npx wrangler deployments list >/dev/null 2>&1; then
+          if out=$(npx wrangler deployments list 2>&1); then
             echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
+          elif echo "$out" | grep -qiE '\[code: 10007\]|Worker does not exist'; then
             echo "::notice::mongodb-mcp has never been deployed; the first deploy is manual."
+          else
+            echo "$out" | tail -20
+            echo "::error::wrangler deployments list failed; not deploying."
+            exit 1
           fi
 
       - name: wrangler deploy
         if: steps.exists.outputs.ok == 'true'
         env:
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SHA: ${{ steps.target.outputs.sha }}
         run: npx wrangler deploy --message "main ${SHA::7}"
