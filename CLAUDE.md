@@ -33,25 +33,25 @@ is cleared on a failed connect so one bad attempt cannot poison the isolate.
 
 ## Where things live
 
-| Path                         | Purpose                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------ |
-| `src/index.ts`               | `OAuthProvider` wiring + stateless `/mcp` handler; isolate-scoped `MongoClient` cache.           |
-| `src/authkit-handler.ts`     | WorkOS OAuth flow: `/authorize`, `/callback`, org + permission gate.                             |
-| `src/workers-oauth-utils.ts` | OAuth approval-dialog + client-approval cookie helpers.                                          |
-| `src/tools.ts`               | All MCP tool definitions + annotations + `permissionHint` / `fail` / `assertNotIdentityCommand`. |
-| `src/icon.ts`                | Inline MCP Tools logo SVG served at `/icon.svg`.                                                 |
-| `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                                                |
-| `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.                                         |
-| `src/landing.ts`             | Static landing page served at `/` — **public**, and it documents the tool surface.               |
-| `src/props.ts`               | Type of the auth props the OAuth provider hands the API handler.                                 |
-| `src/native-stub.js`         | No-op stand-in for the driver's native optional deps (aliased in `wrangler.jsonc`).              |
-| `test/tools.test.ts`         | Tool catalogue, annotations, and the security invariants (see below).                            |
-| `test/handler.test.ts`       | Drives the real stateless `/mcp` handler end to end inside `workerd`.                            |
-| `test/mongo.test.ts`         | Extended-JSON helpers and the 256 KiB truncation cap.                                            |
-| `test/oauth-utils.test.ts`   | Client-approval cookie signing + approval-dialog helpers.                                        |
-| `.github/workflows/`         | `ci.yml`, `lint.yml`, `security.yml`, `auto-tag.yml`, `release.yml`, `auto-assign.yml`.          |
-| `wrangler.jsonc`             | Production worker config; `OAUTH_KV` binding lives here.                                         |
-| `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here.                                 |
+| Path                         | Purpose                                                                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`               | `OAuthProvider` wiring + stateless `/mcp` handler; isolate-scoped `MongoClient` cache.                                       |
+| `src/authkit-handler.ts`     | WorkOS OAuth flow: `/authorize`, `/callback`, org + permission gate.                                                         |
+| `src/workers-oauth-utils.ts` | OAuth approval-dialog + client-approval cookie helpers.                                                                      |
+| `src/tools.ts`               | All MCP tool definitions + annotations + `permissionHint` / `fail` / `assertNotIdentityCommand`.                             |
+| `src/icon.ts`                | Inline MCP Tools logo SVG served at `/icon.svg`.                                                                             |
+| `src/mongo.ts`               | `buildClient(uri)` + re-exports of EJSON helpers.                                                                            |
+| `src/ejson.ts`               | Extended-JSON parse/stringify with a 256 KiB output cap.                                                                     |
+| `src/landing.ts`             | Static landing page served at `/` — **public**, and it documents the tool surface.                                           |
+| `src/props.ts`               | Type of the auth props the OAuth provider hands the API handler.                                                             |
+| `src/native-stub.js`         | No-op stand-in for the driver's native optional deps (aliased in `wrangler.jsonc`).                                          |
+| `test/tools.test.ts`         | Tool catalogue, annotations, and the security invariants (see below).                                                        |
+| `test/handler.test.ts`       | Drives the real stateless `/mcp` handler end to end inside `workerd`.                                                        |
+| `test/mongo.test.ts`         | Extended-JSON helpers and the 256 KiB truncation cap.                                                                        |
+| `test/oauth-utils.test.ts`   | Client-approval cookie signing + approval-dialog helpers.                                                                    |
+| `.github/workflows/`         | `ci.yml`, `security.yml`, `auto-tag.yml`, `release.yml`, `staging-version.yml`, `beta.yml`, `deploy.yml`, `auto-assign.yml`. |
+| `wrangler.jsonc`             | Production worker config; `OAUTH_KV` binding lives here.                                                                     |
+| `wrangler.test.jsonc`        | Worker config used by the vitest pool — keep test bindings here.                                                             |
 
 ## Commands
 
