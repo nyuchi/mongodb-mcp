@@ -58,14 +58,42 @@ jobs:
       - if: env.CLOUDFLARE_API_TOKEN != ''
         run: npm ci
 
-      - name: Worker exists
-        id: exists
+      # CI runs on main are not cancelled, so they can finish out of order.
+      # Only deploy the commit that is still the tip of main; a newer commit's
+      # own CI run deploys it, so an older one never rolls production back.
+      - name: Still the tip of main
+        id: tip
         if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          if npx wrangler deployments list >/dev/null 2>&1; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tip=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
+          if [ "$tip" = "$SHA" ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
+            echo "::notice::${SHA::7} is no longer the tip of main (${tip::7}); its CI run deploys instead."
+          fi
+
+      # Only a Worker that does not exist yet skips (its first deploy is
+      # manual). Any other wrangler failure (token scope, account, outage)
+      # fails the job instead of silently leaving production behind.
+      - name: Worker exists
+        id: exists
+        if: steps.tip.outputs.ok == 'true'
+        run: |
+          if out=$(npx wrangler deployments list 2>&1); then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          elif echo "$out" | grep -qiE '\[code: 10007\]|Worker does not exist'; then
             echo "::notice::mongodb-mcp has never been deployed; the first deploy is manual."
+          else
+            echo "$out" | tail -20
+            echo "::error::wrangler deployments list failed; not deploying."
+            exit 1
           fi
 
       - name: wrangler deploy

@@ -5,10 +5,15 @@ name: Beta
 # https://staging-mongodb-mcp.nyuchi.workers.dev. `wrangler versions upload`
 # never deploys, so production (mongodb.nyuchi.dev) is untouched.
 #
+# It runs only once "CI" has passed on that staging push, so a merge that
+# fails type-check or tests never reaches the beta.
+#
 # Skips cleanly when CLOUDFLARE_API_TOKEN is not available to the repo.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [staging]
   workflow_dispatch:
 
@@ -24,7 +29,13 @@ jobs:
     name: Upload the staging version
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/staging'
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/staging') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'staging')
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -36,6 +47,8 @@ jobs:
       - uses: actions/checkout@v7
         if: env.CLOUDFLARE_API_TOKEN != ''
         with:
+          # The commit CI passed on.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -50,5 +63,5 @@ jobs:
       - name: wrangler versions upload --preview-alias staging
         if: env.CLOUDFLARE_API_TOKEN != ''
         env:
-          SHA: ${{ github.sha }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: npx wrangler versions upload --preview-alias staging --message "staging ${SHA::7}"
