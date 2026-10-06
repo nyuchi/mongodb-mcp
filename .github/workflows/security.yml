@@ -2,7 +2,7 @@ name: Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
   schedule:
     # Weekly CodeQL/secret refresh to catch issues found after the PR window.
