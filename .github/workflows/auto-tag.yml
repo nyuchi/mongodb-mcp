@@ -1,14 +1,21 @@
 name: auto-tag
 
-# Versioning policy (nyuchi/.github#80): a release to main is the next MINOR
-# above the highest tag; merges into staging are tagged as patches by
-# staging-version.yml; a MAJOR is only ever made by hand, from the Actions
-# tab with bump: major. Each segment holds 0..999.
+# Tags the next version on every push to main, under the org versioning
+# policy (nyuchi/.github#80):
+#   a merge into staging ........ PATCH (staging-version.yml)
+#   a push to main (a release) .. MINOR (this workflow)
+#   MAJOR ....................... only ever by hand: run this workflow with
+#                                 bump: major
+# Each segment holds 0..999; minor 999 stops and asks for that manual major.
+# The version is computed from the highest v* tag by the shared next-version
+# action, inside reusable-auto-tag.yml (no version file in this repo).
+# Before 2026-10-04 conventional-commit prefixes chose the bump; versions
+# released under that rule are not renumbered.
 #
-# The version is COMPUTED from the tags (package.json is not the source of
-# the release version here). The tag is pushed with RELEASE_BUMP_TOKEN so
-# that release.yml (on `push: tags`) starts; a GITHUB_TOKEN tag would not
-# start it. The logic is nyuchi/.github's reusable-auto-tag.yml.
+# The tag is pushed with the PAT (`RELEASE_BUMP_TOKEN`): GITHUB_TOKEN-pushed
+# tags do not trigger downstream workflows, so without it release.yml would
+# never fire and no SBOM/release would be cut. The reusable workflow hands the
+# PAT only to its push step.
 
 on:
   push:
@@ -16,9 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: >-
-          Versioning policy override. main releases the next minor; a major
-          is only ever made by hand, here.
+        description: Bump for this release. major is only ever made by hand, here.
         type: choice
         options: [minor, patch, major]
         default: minor
@@ -32,7 +37,7 @@ concurrency:
 
 jobs:
   tag:
-    uses: nyuchi/.github/.github/workflows/reusable-auto-tag.yml@924e5b4d0983d31379aedbec02b990793f29c792 # main, 2026-10-04
+    uses: nyuchi/.github/.github/workflows/reusable-auto-tag.yml@924e5b4d0983d31379aedbec02b990793f29c792  # main, 2026-10-04
     with:
       channel: main
       bump: ${{ inputs.bump || '' }}
