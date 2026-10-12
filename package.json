@@ -33,7 +33,7 @@
     "@cloudflare/workers-types": "^5.20260929.1",
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3",
-    "vite-plus": "^1.0.0",
+    "vite-plus": "^1.1.0",
     "vitest": "^4.1.11",
     "wrangler": "^4.147.0"
   },
