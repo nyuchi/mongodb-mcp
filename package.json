@@ -39,7 +39,7 @@
   },
   "overrides": {
     "bson": "7.2.0",
-    "fast-uri": "^3.1.8",
+    "fast-uri": "^3.1.9",
     "ip-address": "^10.7.3",
     "undici": "^7.29.1",
     "sharp": "^0.35.4"
