@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   release:
-    uses: nyuchi/.github/.github/workflows/reusable-release.yml@b0402fdd3b590fa6c6774ea81c4e8cc21a4cf6cb  # main 2026-10-04
+    uses: nyuchi/.github/.github/workflows/reusable-release.yml@c2e2506a4eadf67fbf824b41720aa220c539fc21  # main 2026-10-04
     permissions:
       contents: write
       packages: read
