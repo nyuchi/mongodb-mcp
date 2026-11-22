@@ -75,4 +75,10 @@ export default new OAuthProvider({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
+  // RFC 9728 protected-resource metadata (required since workers-oauth-provider
+  // 1.0). This Worker is both the authorization server and its only resource.
+  resourceMetadata: {
+    resource: "https://mongodb.nyuchi.dev/mcp",
+    authorization_servers: ["https://mongodb.nyuchi.dev"],
+  },
 });
