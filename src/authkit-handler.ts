@@ -35,13 +35,6 @@ async function buildPkce(): Promise<{ codeVerifier: string; codeChallenge: strin
   return { codeVerifier, codeChallenge };
 }
 
-function splitCsv(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 /** Message used whenever the sign-in flow needs the AuthKit domain and it is unset. */
 export const AUTHKIT_DOMAIN_MISSING = "WORKOS_AUTHKIT_DOMAIN is not configured";
 
@@ -97,10 +90,7 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   // permission so WorkOS grants it (in the token's `scope` claim) only when the
   // user's org role actually holds it.
   const scopes = ["openid", "email", "profile"];
-  // Internal environment (WORKOS_ALLOWED_USERS): no organizations or
-  // permissions exist there, so none is requested and the flow is not pinned.
-  const internal = splitCsv(env.WORKOS_ALLOWED_USERS).length > 0;
-  const requiredPermission = internal ? "" : (env.WORKOS_REQUIRED_PERMISSION || "").trim();
+  const requiredPermission = (env.WORKOS_REQUIRED_PERMISSION || "").trim();
   if (requiredPermission) scopes.push(requiredPermission);
   const params = new URLSearchParams({
     client_id: env.WORKOS_CLIENT_ID,
@@ -112,7 +102,7 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
     scope: scopes.join(" "),
   });
   // Pin the flow to our org so the token is organization-scoped.
-  if (!internal && env.WORKOS_ORGANIZATION_ID) {
+  if (env.WORKOS_ORGANIZATION_ID) {
     params.set("organization_id", env.WORKOS_ORGANIZATION_ID);
   }
   const url = new URL("/oauth2/authorize", requireAuthkitDomain(env));
@@ -134,24 +124,13 @@ export type AccessDenial = { status: 403 | 500; message: string };
  * is the one thing this gate exists to prevent.
  */
 export function checkAccess(
-  config: { allowedOrgIds?: string; requiredPermission?: string; allowedUserIds?: string },
-  session: { organizationId?: string; permissions: readonly string[]; userId?: string },
+  config: { allowedOrgIds?: string; requiredPermission?: string },
+  session: { organizationId?: string; permissions: readonly string[] },
 ): AccessDenial | null {
-  // Internal environment: no organizations, roles or permissions exist, so the
-  // user allowlist is the whole gate. A configured allowlist replaces the org
-  // and permission checks; it never relaxes them when it is unset or blank.
-  const allowedUsers = splitCsv(config.allowedUserIds);
-  if (allowedUsers.length > 0) {
-    if (!session.userId || !allowedUsers.includes(session.userId)) {
-      return {
-        status: 403,
-        message: "Your WorkOS user is not authorized to use this MCP server.",
-      };
-    }
-    return null;
-  }
-
-  const allowedOrgs = splitCsv(config.allowedOrgIds);
+  const allowedOrgs = (config.allowedOrgIds ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (allowedOrgs.length === 0) {
     return {
       status: 500,
@@ -395,9 +374,8 @@ app.get("/callback", async (c) => {
     {
       allowedOrgIds: c.env.WORKOS_ALLOWED_ORG_IDS,
       requiredPermission: c.env.WORKOS_REQUIRED_PERMISSION,
-      allowedUserIds: c.env.WORKOS_ALLOWED_USERS,
     },
-    { organizationId, permissions, userId },
+    { organizationId, permissions },
   );
   if (denial) return c.text(denial.message, denial.status);
 
