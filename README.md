@@ -297,7 +297,8 @@ never committed, and has no default in code (without it `/authorize` and
 - `WORKOS_AUTHKIT_DOMAIN` — the AuthKit domain (issuer + OAuth base);
   `wrangler secret put WORKOS_AUTHKIT_DOMAIN`
 
-Set these non-secret `vars` in `wrangler.jsonc`:
+Set these as Worker secrets too (`wrangler secret bulk`); nothing WorkOS-related
+is committed in `wrangler.jsonc`:
 
 - `WORKOS_CLIENT_ID` — the Connect application client id
 - `WORKOS_ORGANIZATION_ID` — the org the sign-in flow is pinned to
