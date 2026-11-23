@@ -13,9 +13,9 @@ WORKOS_ALLOWED_ORG_IDS="org_..."                       # comma-separated allowli
 # Permission requested as an OAuth scope; granted only if the user's role holds it.
 WORKOS_REQUIRED_PERMISSION="mongodb:access"
 # Option B, an internal environment with no organizations or permissions (what
-# production uses): exactly "true" admits every signed-in user. WorkOS holds who
-# may sign in (sign-up off); nothing is listed here. Overrides option A.
-# WORKOS_INTERNAL_ENVIRONMENT="true"
+# production uses): a comma-separated allowlist of WorkOS user ids. When set it
+# is the whole gate and options A's org and permission settings are ignored.
+# WORKOS_ALLOWED_USERS="user_..."
 
 # --- Secrets ---
 # Encrypts the client-approval cookie (any long random string; `openssl rand -hex 32`).

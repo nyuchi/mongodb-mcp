@@ -35,11 +35,6 @@ async function buildPkce(): Promise<{ codeVerifier: string; codeChallenge: strin
   return { codeVerifier, codeChallenge };
 }
 
-/** Exactly "true", nothing looser. */
-export function isInternalEnvironment(value: string | undefined): boolean {
-  return (value ?? "").trim().toLowerCase() === "true";
-}
-
 function splitCsv(value: string | undefined): string[] {
   return (value ?? "")
     .split(",")
@@ -104,7 +99,7 @@ async function startWorkOSFlow(env: Env, stateToken: string, requestUrl: string)
   const scopes = ["openid", "email", "profile"];
   // Internal environment (WORKOS_ALLOWED_USERS): no organizations or
   // permissions exist there, so none is requested and the flow is not pinned.
-  const internal = isInternalEnvironment(env.WORKOS_INTERNAL_ENVIRONMENT);
+  const internal = splitCsv(env.WORKOS_ALLOWED_USERS).length > 0;
   const requiredPermission = internal ? "" : (env.WORKOS_REQUIRED_PERMISSION || "").trim();
   if (requiredPermission) scopes.push(requiredPermission);
   const params = new URLSearchParams({
@@ -139,16 +134,19 @@ export type AccessDenial = { status: 403 | 500; message: string };
  * is the one thing this gate exists to prevent.
  */
 export function checkAccess(
-  config: { allowedOrgIds?: string; requiredPermission?: string; internalEnvironment?: string },
+  config: { allowedOrgIds?: string; requiredPermission?: string; allowedUserIds?: string },
   session: { organizationId?: string; permissions: readonly string[]; userId?: string },
 ): AccessDenial | null {
-  // Internal environment: no organizations, roles or permissions exist, and
-  // WorkOS holds who may sign in (sign-up is off), so a signed-in user is
-  // admitted. Only exactly "true" turns this on; unset or anything else keeps
-  // the org and permission checks, which fail closed.
-  if (isInternalEnvironment(config.internalEnvironment)) {
-    if (!session.userId) {
-      return { status: 403, message: "Could not determine the WorkOS user." };
+  // Internal environment: no organizations, roles or permissions exist, so the
+  // user allowlist is the whole gate. A configured allowlist replaces the org
+  // and permission checks; it never relaxes them when it is unset or blank.
+  const allowedUsers = splitCsv(config.allowedUserIds);
+  if (allowedUsers.length > 0) {
+    if (!session.userId || !allowedUsers.includes(session.userId)) {
+      return {
+        status: 403,
+        message: "Your WorkOS user is not authorized to use this MCP server.",
+      };
     }
     return null;
   }
@@ -397,7 +395,7 @@ app.get("/callback", async (c) => {
     {
       allowedOrgIds: c.env.WORKOS_ALLOWED_ORG_IDS,
       requiredPermission: c.env.WORKOS_REQUIRED_PERMISSION,
-      internalEnvironment: c.env.WORKOS_INTERNAL_ENVIRONMENT,
+      allowedUserIds: c.env.WORKOS_ALLOWED_USERS,
     },
     { organizationId, permissions, userId },
   );

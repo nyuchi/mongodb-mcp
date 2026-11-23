@@ -59,11 +59,16 @@
   // per environment as a Worker secret (owner script, 1Password nyuchi/workos) —
   // never committed, no default in code. Without it /authorize and /callback
   // answer 503 "WORKOS_AUTHKIT_DOMAIN is not configured".
-  // No WorkOS value lives in this file. WORKOS_AUTHKIT_DOMAIN, WORKOS_CLIENT_ID
-  // and WORKOS_INTERNAL_ENVIRONMENT (exactly "true" admits every signed-in user
-  // of an internal WorkOS environment with no organizations; WorkOS holds who
-  // may sign in) are Worker secrets, set per environment with
-  // `wrangler secret put` (see README, "Configure the gate").
+  // Internal Nyuchi WorkOS environment (project "Nyuchi", Production; AuthKit
+  // domain https://auth.nyuchi.dev, set as the WORKOS_AUTHKIT_DOMAIN secret).
+  // It has no organizations, roles or permissions, so the user allowlist is
+  // the whole gate: WORKOS_ALLOWED_USERS replaces the org and permission vars.
+  // WORKOS_CLIENT_ID is that environment's default AuthKit application; its
+  // redirect URI is https://mongodb.nyuchi.dev/callback.
+  "vars": {
+    "WORKOS_CLIENT_ID": "client_01M84H87R7XRK5YYN7CE1A02F1",
+    "WORKOS_ALLOWED_USERS": "user_01M84H99RW1CHKDK23P8CP6YY1",
+  },
   "dev": {
     "port": 8788,
   },
