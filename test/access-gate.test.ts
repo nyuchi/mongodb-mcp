@@ -87,38 +87,30 @@ describe("checkAccess", () => {
 });
 
 // The internal Nyuchi WorkOS environment has no organizations, roles or
-// permissions: a configured user allowlist is the whole gate.
-describe("checkAccess with a user allowlist (internal environment)", () => {
-  const internal = { allowedUserIds: " user_a , user_b " };
+// permissions: WorkOS holds who may sign in, and "true" admits that user.
+describe("checkAccess in the internal environment", () => {
+  const internal = { internalEnvironment: "true" };
 
-  it("admits a listed user with no org and no permission", () => {
+  it("admits a signed-in user with no org and no permission", () => {
     expect(checkAccess(internal, { userId: "user_a", permissions: [] })).toBeNull();
-    expect(checkAccess(internal, { userId: "user_b", permissions: [] })).toBeNull();
-  });
-
-  it("refuses a user who is not listed, even one holding the old org and permission", () => {
-    const denial = checkAccess(
-      { ...internal, allowedOrgIds: ORG, requiredPermission: PERMISSION },
-      { userId: "user_stranger", organizationId: ORG, permissions: [PERMISSION] },
-    );
-    expect(denial?.status).toBe(403);
+    expect(checkAccess({ internalEnvironment: " TRUE " }, { userId: "u", permissions: [] })).toBeNull();
   });
 
   it("refuses a session with no user id", () => {
     expect(checkAccess(internal, { permissions: [] })?.status).toBe(403);
   });
 
-  it("does not open the gate when the allowlist is blank: the org and permission gates still apply", () => {
-    for (const allowedUserIds of [undefined, "", "  ", " , "]) {
-      const denial = checkAccess({ ...configured, allowedUserIds }, {
+  it("is on only for exactly true: anything else keeps the org and permission gate", () => {
+    for (const internalEnvironment of [undefined, "", "false", "1", "yes", "tru", " "]) {
+      const denial = checkAccess({ ...configured, internalEnvironment }, {
         userId: "user_a",
         organizationId: "org_other",
         permissions: [],
       });
-      expect(denial?.status, JSON.stringify(allowedUserIds)).toBe(403);
+      expect(denial?.status, JSON.stringify(internalEnvironment)).toBe(403);
       expect(denial?.message).toContain("organization");
     }
     // and fully unconfigured still fails closed
-    expect(checkAccess({ allowedUserIds: " " }, { userId: "user_a", permissions: [] })?.status).toBe(500);
+    expect(checkAccess({}, { userId: "user_a", permissions: [] })?.status).toBe(500);
   });
 });
