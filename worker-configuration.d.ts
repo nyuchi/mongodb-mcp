@@ -23,6 +23,10 @@ interface Env {
   WORKOS_ALLOWED_ORG_IDS?: string;
   // Optional WorkOS permission string required to use any tool (e.g. "mongodb:access").
   WORKOS_REQUIRED_PERMISSION?: string;
+  // Internal WorkOS environment: comma-separated WorkOS user ids allowed to use
+  // this MCP. When set it is the whole gate (no org, no permission, flow not
+  // pinned to an org). Unset: the org and permission gates apply.
+  WORKOS_ALLOWED_USERS?: string;
 
   // --- MongoDB ---
   // Shared MongoDB connection string. Set with `wrangler secret put MONGODB_URI`.

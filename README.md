@@ -304,6 +304,11 @@ Set these non-secret `vars` in `wrangler.jsonc`:
 - `WORKOS_ALLOWED_ORG_IDS` — comma-separated `org_id` allowlist
 - `WORKOS_REQUIRED_PERMISSION` — permission requested as a scope and enforced
   (e.g. `mongodb:access`)
+- `WORKOS_ALLOWED_USERS` — for an internal environment with no organizations or
+  permissions (production uses this): comma-separated WorkOS user ids. When set
+  it is the whole gate: the three settings above are ignored, no permission is
+  requested and the flow is not pinned to an organization. Blank or unset, the
+  org and permission gate applies unchanged.
 
 Then set the secrets:
 
