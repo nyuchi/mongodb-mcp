@@ -47,6 +47,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # until Astro and typescript-eslint support TS 7; remove then
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
