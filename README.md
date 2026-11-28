@@ -452,12 +452,11 @@ and native optional dependencies (`snappy`, `kerberos`, `mongodb-client-encrypti
 ## Releases
 
 Tags are the source of truth. Versions follow the org policy
-([nyuchi/.github#80](https://github.com/nyuchi/.github/issues/80)); the branch
-decides the bump, not the commit message:
+([nyuchi/.github#80](https://github.com/nyuchi/.github/issues/80)); a push to `main`
+is the release, not the commit message:
 
 | Event                                       | Bump  |
 | ------------------------------------------- | ----- |
-| A merge into `staging` (the live beta)      | patch |
 | A push to `main` (`auto-tag.yml`)           | minor |
 | A person runs _auto-tag_ with `bump: major` | major |
 
