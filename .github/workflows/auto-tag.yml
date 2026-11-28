@@ -2,7 +2,6 @@ name: auto-tag
 
 # Tags the next version on every push to main, under the org versioning
 # policy (nyuchi/.github#80):
-#   a merge into staging ........ PATCH (staging-version.yml)
 #   a push to main (a release) .. MINOR (this workflow)
 #   MAJOR ....................... only ever by hand: run this workflow with
 #                                 bump: major

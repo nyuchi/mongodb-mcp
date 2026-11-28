@@ -12,8 +12,6 @@ name: Deploy
 # older commit never rolls production back, and whichever Deploy run executes
 # last still ships the newest commit that passed.
 #
-# Staging never deploys: it uploads a preview version (beta.yml).
-#
 # Skips cleanly when CLOUDFLARE_API_TOKEN is not available to the repo, or when
 # the Worker has never been deployed (that first deploy stays manual).
 
