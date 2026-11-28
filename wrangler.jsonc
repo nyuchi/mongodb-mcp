@@ -55,16 +55,15 @@
     "mongodb-client-encryption": "./src/native-stub.js",
     "snappy": "./src/native-stub.js",
   },
-  // WORKOS_AUTHKIT_DOMAIN is deliberately NOT a var here. It is REQUIRED and set
-  // per environment as a Worker secret (owner script, 1Password nyuchi/workos) —
-  // never committed, no default in code. Without it /authorize and /callback
-  // answer 503 "WORKOS_AUTHKIT_DOMAIN is not configured".
-  "vars": {
-    "WORKOS_CLIENT_ID": "client_01KVTX0V2K1VM3PSC0DJ9VZWTV",
-    "WORKOS_ORGANIZATION_ID": "org_01KRDAB894DJF5V38PT5617TV1",
-    "WORKOS_ALLOWED_ORG_IDS": "org_01KRDAB894DJF5V38PT5617TV1",
-    "WORKOS_REQUIRED_PERMISSION": "mongodb:access",
-  },
+  // WORKOS_AUTHKIT_DOMAIN is REQUIRED and, like the other WorkOS settings below,
+  // a Worker secret — never committed, no default in code. Without it
+  // /authorize and /callback answer 503 "WORKOS_AUTHKIT_DOMAIN is not configured".
+  // No WorkOS value lives in this file: they are all Worker secrets, set per
+  // environment with `wrangler secret bulk` (see README, "Configure the gate"):
+  // WORKOS_CLIENT_ID, WORKOS_ORGANIZATION_ID, WORKOS_ALLOWED_ORG_IDS and
+  // WORKOS_REQUIRED_PERMISSION. People and permissions are maintained in
+  // WorkOS (the Nyuchi project, Production environment): this server needs the
+  // data:admin permission, granted by a role on a Nyuchi organization membership.
   "dev": {
     "port": 8788,
   },
